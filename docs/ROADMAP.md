@@ -60,10 +60,16 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 
 **Done when:**
 
-- A sample application fixture demonstrates navigation, interaction, visible-state assertion, and an intentional failure.
-- Browser, assertion, timeout, unsupported-step, and application-readiness failures map to the documented result semantics.
-- Runs are headless and deterministic by default, with bounded timeouts and isolated browser contexts.
-- Browser implementation satisfies the narrow verifier contract and cannot mutate acceptance criteria.
+- Verification Plan v1 remains unchanged while strict Plan v2 freezes explicit browser procedures.
+- Unsupported procedure or step syntax is rejected as invalid input; it is not a runtime verdict.
+- A maintained standard-library application fixture demonstrates navigation, fill, click,
+  visible-state assertion, context isolation, and an intentional assertion failure in real Chromium.
+- A supported assertion contradiction maps to `FAIL`; browser/action/readiness failures map to
+  `UNKNOWN`; only complete successful procedures map to `PASS`.
+- Runs use one headless Chromium browser, bounded timeouts, a fixed viewport, and a fresh browser
+  context per criterion.
+- Browser execution returns an internal outcome and does not fabricate evidence references or feed
+  M3 proof receipts before M5 evidence capture exists.
 - No autonomous or LLM-generated navigation is present.
 
 ## M5 — Evidence capture and artifact manifest

@@ -4,7 +4,9 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M3 implements plan-related domain rules, fixture-derived results, and pure proof-receipt construction and rendering; verification execution and evidence artifacts remain unimplemented.
+M0 defined these boundaries and contracts. M4 implements versioned plan rules, fixture-derived
+receipts, and deterministic browser execution at the library level. Browser outcomes remain
+separate from final results because durable evidence artifacts are not implemented until M5.
 
 ## System context and trust boundary
 
@@ -14,7 +16,10 @@ Local execution is not strong isolation. Before the isolated-environment milesto
 
 ## Core concepts
 
-These are the product's conceptual schemas. M3 implements `AcceptanceCriterion`, a minimal `VerificationPlan` with the task represented as a string, `Verdict`, a minimal fixture-supplied `VerificationResult`, and a proof receipt snapshot. Exact run persistence and evidence schemas belong to later milestones.
+These are the product's conceptual schemas. Plan v1 retains the criteria-only M2 contract. Plan v2
+adds immutable `BrowserAcceptanceCriterion` and `BrowserProcedure` models. M3's evidence-requiring
+`VerificationResult` and proof receipt remain unchanged. Exact run persistence and evidence schemas
+belong to later milestones.
 
 ### Task
 
@@ -48,11 +53,22 @@ The deterministic aggregate rule is:
 
 ### Verifier
 
-A narrow internal protocol implemented by each deterministic verification mechanism. It declares the procedure types it supports and receives a frozen criterion, validated procedure configuration, and a run context. It returns one result and captured evidence references. It does not mutate criteria, aggregate the run, render receipts, or decide whether the implementation should be merged.
+A future narrow internal protocol for multiple deterministic verification mechanisms. M4 does not
+introduce this abstraction because only one concrete verifier exists. A verifier must not mutate
+criteria, aggregate a run, render receipts, or decide whether an implementation should be merged.
 
 ### BrowserVerifier
 
-The first specialized verifier, planned for M4, backed by Playwright. It executes explicit browser steps and assertions against a configured local base URL while capturing relevant page, console, network, and trace observations. v0.1 does not ask an LLM to improvise navigation. Browser lifecycle and Playwright details stay behind the `Verifier` boundary.
+The M4 library executor backed by Playwright. It accepts a loopback HTTP(S) origin separately from a
+frozen Plan v2, launches one headless Chromium browser with a fixed viewport, and gives each
+criterion a fresh `BrowserContext` and page. It executes only `navigate`, `fill`, `click`, and
+`assert_visible`, using bounded timeouts and Playwright auto-waiting. It returns an internal
+`BrowserExecutionResult`, not M3 `VerificationResult` or `ProofReceipt` data. Screenshots, traces,
+console logs, network summaries, and other durable observations belong to M5.
+
+Fresh contexts isolate cookies, local storage, session storage, and page state between criteria.
+They do not isolate the browser or application from the host. The externally started application
+runs with normal user permissions, and loaded pages may make third-party network requests.
 
 ### CLI
 
@@ -65,7 +81,9 @@ Once implementation begins, start with a single Python package and only the modu
 ```text
 agentverify/
   domain.py          # core models and verdict rules
-  plan.py            # plan loading, validation, and snapshot digest
+  browser_plan.py    # pure Plan v2 browser procedure models
+  browser.py         # concrete Playwright execution and internal outcomes
+  plan.py            # version dispatch, loading, validation, and snapshot digest
   run.py             # verification orchestration use case
   verifiers/         # deterministic verifier implementations
   evidence.py        # artifact capture and manifest operations
@@ -106,7 +124,12 @@ AgentVerify operates on repository state, commands, URLs, plans, observations, a
 
 ## Failure semantics
 
-`FAIL` means the verifier obtained valid evidence that contradicts a criterion. `UNKNOWN` means it could not establish the criterion either way, including unsupported procedures, timeouts without a decisive assertion, environment failures, verifier defects, or incomplete evidence. Product bugs and application bugs must be distinguishable in diagnostics. A process exit code will summarize the receipt for automation, while the receipt retains per-criterion detail.
+Unsupported procedure or step syntax is invalid plan input because Plan v2 is strict. For a valid
+browser procedure, `PASS` means every step and declared assertion succeeded. `FAIL` means a supported
+explicit assertion contradicted the criterion. `UNKNOWN` means execution could not establish the
+criterion, including browser infrastructure failure, unreachable navigation, or a fill/click failure
+before an assertion. Unexpected AgentVerify programming bugs still surface rather than being
+silently converted to `UNKNOWN`.
 
 ## Largest technical risks
 
