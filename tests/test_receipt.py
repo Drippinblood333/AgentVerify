@@ -1,5 +1,6 @@
 """Tests for fixture-derived proof receipt construction and rendering."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from agentverify.domain import AcceptanceCriterion, Verdict, VerificationPlan, V
 from agentverify.receipt import (
     EnvironmentMetadata,
     ProofReceipt,
+    ReceiptCriterionResult,
     ReceiptValidationError,
     build_receipt,
     render_receipt_json,
@@ -138,6 +140,20 @@ def test_unknown_result_can_have_no_evidence() -> None:
     assert unknown.evidence_refs == ()
 
 
+@pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])
+def test_receipt_criterion_rejects_conclusive_verdict_without_evidence(
+    verdict: Verdict,
+) -> None:
+    with pytest.raises(ValidationError, match="require at least one evidence reference"):
+        ReceiptCriterionResult(
+            criterion_id="AC-001",
+            description="A user can request a password reset",
+            verdict=verdict,
+            reason="A conclusive result needs a reference.",
+            evidence_refs=(),
+        )
+
+
 def test_result_rejects_a_blank_reason() -> None:
     with pytest.raises(ValidationError):
         result("AC-001", Verdict.UNKNOWN, "   ")
@@ -244,6 +260,54 @@ def test_build_receipt_requires_explicit_limitations() -> None:
             environment=ENVIRONMENT,
             limitations=(),
         )
+
+
+def test_proof_receipt_rejects_overall_pass_with_a_fail_criterion() -> None:
+    receipt = build_fixture_receipt("fail")
+
+    with pytest.raises(ValidationError, match="expected FAIL, got PASS"):
+        ProofReceipt(
+            schema_version=receipt.schema_version,
+            task=receipt.task,
+            plan_digest=receipt.plan_digest,
+            overall_verdict=Verdict.PASS,
+            completed=receipt.completed,
+            criteria=receipt.criteria,
+            environment=receipt.environment,
+            limitations=receipt.limitations,
+        )
+
+
+def test_proof_receipt_rejects_pass_for_an_incomplete_run() -> None:
+    receipt = build_fixture_receipt("pass")
+
+    with pytest.raises(ValidationError, match="expected UNKNOWN, got PASS"):
+        ProofReceipt(
+            schema_version=receipt.schema_version,
+            task=receipt.task,
+            plan_digest=receipt.plan_digest,
+            overall_verdict=receipt.overall_verdict,
+            completed=False,
+            criteria=receipt.criteria,
+            environment=receipt.environment,
+            limitations=receipt.limitations,
+        )
+
+
+def test_proof_receipt_json_rejects_duplicate_criterion_ids() -> None:
+    payload = build_fixture_receipt("pass").model_dump(mode="json")
+    criteria = payload["criteria"]
+    assert isinstance(criteria, list)
+    criteria.append(dict(criteria[0]))
+
+    with pytest.raises(ValidationError, match="receipt criterion id must be unique: AC-001"):
+        ProofReceipt.model_validate_json(json.dumps(payload))
+
+
+def test_proof_receipt_round_trips_through_rendered_json() -> None:
+    receipt = build_fixture_receipt("unknown")
+
+    assert ProofReceipt.model_validate_json(render_receipt_json(receipt)) == receipt
 
 
 def test_receipt_uses_frozen_plan_order_not_result_input_order() -> None:

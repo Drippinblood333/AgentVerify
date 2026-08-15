@@ -6,7 +6,7 @@ import json
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agentverify.domain import (
     NonBlankText,
@@ -43,6 +43,13 @@ class ReceiptCriterionResult(BaseModel):
     reason: NonBlankText
     evidence_refs: tuple[NonBlankText, ...]
 
+    @model_validator(mode="after")
+    def require_evidence_for_conclusive_verdicts(self) -> ReceiptCriterionResult:
+        """Require opaque evidence references for conclusive receipt entries."""
+        if self.verdict in {Verdict.PASS, Verdict.FAIL} and not self.evidence_refs:
+            raise ValueError("PASS and FAIL results require at least one evidence reference")
+        return self
+
 
 class ProofReceipt(BaseModel):
     """An immutable, fixture-derived record suitable for human review."""
@@ -57,6 +64,36 @@ class ProofReceipt(BaseModel):
     criteria: Annotated[tuple[ReceiptCriterionResult, ...], Field(min_length=1)]
     environment: EnvironmentMetadata
     limitations: Annotated[tuple[NonBlankText, ...], Field(min_length=1)]
+
+    @field_validator("criteria")
+    @classmethod
+    def require_unique_criterion_ids(
+        cls,
+        criteria: tuple[ReceiptCriterionResult, ...],
+    ) -> tuple[ReceiptCriterionResult, ...]:
+        """Reject receipts whose criterion snapshots are ambiguous."""
+        seen: set[str] = set()
+        for criterion in criteria:
+            if criterion.criterion_id in seen:
+                raise ValueError(
+                    f"receipt criterion id must be unique: {criterion.criterion_id}"
+                )
+            seen.add(criterion.criterion_id)
+        return criteria
+
+    @model_validator(mode="after")
+    def require_consistent_overall_verdict(self) -> ProofReceipt:
+        """Reject receipts whose stated verdict contradicts their own snapshots."""
+        expected = aggregate_receipt_verdict(
+            [criterion.verdict for criterion in self.criteria],
+            completed=self.completed,
+        )
+        if self.overall_verdict is not expected:
+            raise ValueError(
+                "overall verdict must match criterion verdicts and completion state: "
+                f"expected {expected.value}, got {self.overall_verdict.value}"
+            )
+        return self
 
 
 def aggregate_receipt_verdict(
