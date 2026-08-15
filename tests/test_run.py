@@ -58,6 +58,21 @@ def durable_execution(
     )
 
 
+def supplemental_artifact(
+    store: EvidenceStore,
+    criterion_id: str,
+    kind: EvidenceKind,
+) -> str:
+    artifact = store.record_bytes(
+        kind=kind,
+        data=b"supplemental",
+        media_type=("image/png" if kind is EvidenceKind.SCREENSHOT else "application/zip"),
+        producer="test",
+        criterion_id=criterion_id,
+    )
+    return artifact.relative_path
+
+
 @pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])
 def test_intact_durable_evidence_preserves_conclusive_verdict(
     tmp_path: Path,
@@ -90,6 +105,103 @@ def test_pass_without_durable_evidence_becomes_unknown(tmp_path: Path) -> None:
     assert result.verdict is Verdict.UNKNOWN
     assert result.evidence_refs == ()
     assert "trustworthy durable evidence" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("verdict", "kind"),
+    [
+        (Verdict.PASS, EvidenceKind.SCREENSHOT),
+        (Verdict.FAIL, EvidenceKind.PLAYWRIGHT_TRACE),
+    ],
+)
+def test_supplemental_evidence_cannot_substitute_for_browser_observation(
+    tmp_path: Path,
+    verdict: Verdict,
+    kind: EvidenceKind,
+) -> None:
+    store = EvidenceStore(tmp_path)
+    evidence_ref = supplemental_artifact(store, "AC-001", kind)
+    execution = BrowserExecutionResult(
+        criterion_id="AC-001",
+        verdict=verdict,
+        reason="conclusive browser outcome",
+        evidence_refs=(evidence_ref,),
+    )
+
+    result = build_browser_verification_results(
+        plan=plan("AC-001"),
+        executions=(execution,),
+        manifest=store.build_manifest(),
+        evidence_root=tmp_path,
+    )[0]
+
+    assert result.verdict is Verdict.UNKNOWN
+    assert result.evidence_refs == (evidence_ref,)
+    assert "trustworthy durable evidence" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("verdict", "remove_observation"),
+    [(Verdict.PASS, False), (Verdict.FAIL, True)],
+)
+def test_broken_observation_is_not_replaced_by_intact_rich_evidence(
+    tmp_path: Path,
+    verdict: Verdict,
+    remove_observation: bool,
+) -> None:
+    store = EvidenceStore(tmp_path)
+    execution = durable_execution(store, "AC-001", verdict)
+    screenshot_ref = supplemental_artifact(
+        store, "AC-001", EvidenceKind.SCREENSHOT
+    )
+    observation_path = tmp_path / execution.evidence_refs[0]
+    if remove_observation:
+        observation_path.unlink()
+    else:
+        original = observation_path.read_bytes()
+        observation_path.write_bytes(b"x" * len(original))
+    execution = BrowserExecutionResult(
+        criterion_id="AC-001",
+        verdict=verdict,
+        reason="conclusive browser outcome",
+        evidence_refs=(*execution.evidence_refs, screenshot_ref),
+    )
+
+    result = build_browser_verification_results(
+        plan=plan("AC-001"),
+        executions=(execution,),
+        manifest=store.build_manifest(),
+        evidence_root=tmp_path,
+    )[0]
+
+    assert result.verdict is Verdict.UNKNOWN
+    assert result.evidence_refs == (screenshot_ref,)
+
+
+def test_unreferenced_observation_cannot_authorize_supplemental_evidence(
+    tmp_path: Path,
+) -> None:
+    store = EvidenceStore(tmp_path)
+    durable_execution(store, "AC-001", Verdict.PASS)
+    screenshot_ref = supplemental_artifact(
+        store, "AC-001", EvidenceKind.SCREENSHOT
+    )
+    execution = BrowserExecutionResult(
+        criterion_id="AC-001",
+        verdict=Verdict.PASS,
+        reason="browser passed",
+        evidence_refs=(screenshot_ref,),
+    )
+
+    result = build_browser_verification_results(
+        plan=plan("AC-001"),
+        executions=(execution,),
+        manifest=store.build_manifest(),
+        evidence_root=tmp_path,
+    )[0]
+
+    assert result.verdict is Verdict.UNKNOWN
+    assert result.evidence_refs == (screenshot_ref,)
 
 
 @pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])

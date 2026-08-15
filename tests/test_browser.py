@@ -350,3 +350,47 @@ def test_evidence_capture_failure_does_not_become_application_fail(
         evidence_root=tmp_path,
     )[0]
     assert result.verdict is Verdict.PASS
+
+
+def test_real_screenshot_without_browser_observation_cannot_authorize_pass(
+    local_app_url: str,
+    tmp_path: Path,
+) -> None:
+    plan = browser_plan(
+        [
+            {
+                "id": "AC-SCREENSHOT-ONLY",
+                "description": "A screenshot alone cannot authorize a pass",
+                "procedure": procedure(
+                    {"type": "navigate", "path": "/"},
+                    {"type": "assert_visible", "selector": "#clean-context"},
+                ),
+            }
+        ]
+    )
+    store = EvidenceStore(tmp_path)
+
+    execution = BrowserVerifier(local_app_url).verify_with_evidence(
+        plan,
+        evidence_store=store,
+        config=BrowserEvidenceConfig(
+            capture_browser_observation=False,
+            capture_screenshot=True,
+        ),
+    )[0]
+
+    assert execution.verdict is Verdict.PASS
+    assert execution.evidence_issues == ()
+    assert len(execution.evidence_refs) == 1
+    assert store.artifacts[0].kind is EvidenceKind.SCREENSHOT
+    screenshot = tmp_path / execution.evidence_refs[0]
+    assert screenshot.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+    result = build_browser_verification_results(
+        plan=plan,
+        executions=(execution,),
+        manifest=store.build_manifest(),
+        evidence_root=tmp_path,
+    )[0]
+    assert result.verdict is Verdict.UNKNOWN
+    assert result.evidence_refs == execution.evidence_refs

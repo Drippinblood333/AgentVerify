@@ -91,9 +91,11 @@ screenshots and traces may still contain page data. Evidence retention is contro
 
 The M5 result bridge requires exact Plan v2 criterion coverage. A browser `PASS` or `FAIL` becomes a
 conclusive `VerificationResult` only when every referenced artifact is present in the supplied
-manifest and passes integrity verification. Missing, unsafe, or corrupt evidence downgrades that
-outcome to `UNKNOWN`; evidence never upgrades an existing `UNKNOWN`. The bridge stops at results and
-does not render a receipt or manage an application process.
+manifest and passes integrity verification, and those references include an intact
+`browser_observation`. Screenshots, traces, console errors, network summaries, and process logs are
+supplemental and cannot substitute for that baseline observation. Missing, unsafe, or corrupt
+evidence downgrades the outcome to `UNKNOWN`; evidence never upgrades an existing `UNKNOWN`. The
+bridge stops at results and does not render a receipt or manage an application process.
 
 ### CLI
 

@@ -126,11 +126,13 @@ permissions, and a loaded page may still make third-party network requests.
 
 ## Evidence capture
 
-The default evidence policy stores only one small JSON browser-observation summary per criterion.
-Screenshots, Playwright traces, console/runtime errors, and network summaries require explicit
-run-level opt-in and are not fields in Plan v2. Defaults are bounded to 128 artifacts per run, eight
-per criterion, 16 MiB per artifact, and 256 KiB per textual artifact; console and network collection
-are capped at 100 and 200 entries respectively.
+The default evidence policy stores one small JSON browser-observation summary per criterion. This is
+the baseline durable observation required for browser `PASS` or `FAIL` to become a conclusive
+`VerificationResult`; screenshots, traces, console errors, and network summaries are supplemental
+and cannot authorize a conclusive result by themselves. Rich captures require explicit run-level
+opt-in and are not fields in Plan v2. Defaults are bounded to 128 artifacts per run, eight per
+criterion, 16 MiB per artifact, and 256 KiB per textual artifact; console and network collection are
+capped at 100 and 200 entries respectively.
 
 Network summaries contain method, scheme, host, path, status, resource type, and success state. They
 exclude bodies, cookies, headers, URL query strings, and fragments. Console/runtime error and

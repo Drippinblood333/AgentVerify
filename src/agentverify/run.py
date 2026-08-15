@@ -7,7 +7,12 @@ from pathlib import Path
 from agentverify.browser import BrowserExecutionResult
 from agentverify.browser_plan import BrowserVerificationPlan
 from agentverify.domain import Verdict, VerificationResult
-from agentverify.evidence import EvidenceError, EvidenceManifest, EvidenceStore
+from agentverify.evidence import (
+    EvidenceError,
+    EvidenceKind,
+    EvidenceManifest,
+    EvidenceStore,
+)
 
 
 class ResultCoverageError(ValueError):
@@ -55,6 +60,7 @@ def build_browser_verification_results(
         execution = by_criterion[criterion.id]
         validated_refs: list[str] = []
         evidence_is_trustworthy = bool(execution.evidence_refs)
+        has_valid_browser_observation = False
         for evidence_ref in execution.evidence_refs:
             artifact = artifacts_by_path.get(evidence_ref)
             if artifact is None or artifact.criterion_id != criterion.id:
@@ -66,10 +72,18 @@ def build_browser_verification_results(
                 evidence_is_trustworthy = False
                 continue
             validated_refs.append(evidence_ref)
+            if artifact.kind is EvidenceKind.BROWSER_OBSERVATION:
+                has_valid_browser_observation = True
 
         verdict = execution.verdict
         reason = execution.reason
-        if verdict in {Verdict.PASS, Verdict.FAIL} and not evidence_is_trustworthy:
+        conclusive_evidence_is_supported = (
+            evidence_is_trustworthy and has_valid_browser_observation
+        )
+        if (
+            verdict in {Verdict.PASS, Verdict.FAIL}
+            and not conclusive_evidence_is_supported
+        ):
             verdict = Verdict.UNKNOWN
             reason = _UNSUPPORTED_EVIDENCE_REASON
 
