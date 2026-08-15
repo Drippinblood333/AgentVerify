@@ -36,10 +36,12 @@ does **not** capture durable evidence or convert real browser outcomes into proo
 receipts remain separate and are not evidence that an application was run. Persistent evidence
 arrives in M5; application lifecycle and the complete CLI verification flow arrive in M6.
 
-Install the package and development tools from a local checkout:
+Install the package and development tools from a local checkout, then install
+Playwright-managed Chromium for browser verification:
 
 ```console
 python -m pip install -e ".[dev]"
+python -m playwright install chromium
 ```
 
 Current CLI behavior:
@@ -114,9 +116,9 @@ See [`examples/greeting.plan.json`](examples/greeting.plan.json). Procedures mus
 `navigate`, contain an `assert_visible`, and use a timeout from 100 to 30,000 milliseconds. Unknown
 procedure or step syntax is invalid input. Navigation paths cannot leave the supplied local origin.
 
-The library accepts only loopback `http` or `https` base URLs, launches bundled Chromium headlessly
-with a fixed 1280×720 viewport, and creates a fresh `BrowserContext` for every criterion. This is
-browser-state isolation only, not a sandbox: the already-running application has normal user
+The library accepts only loopback `http` or `https` base URLs, launches Playwright-managed Chromium
+headlessly with a fixed 1280×720 viewport, and creates a fresh `BrowserContext` for every criterion.
+This is browser-state isolation only, not a sandbox: the already-running application has normal user
 permissions, and a loaded page may still make third-party network requests.
 
 ## Intended workflow
