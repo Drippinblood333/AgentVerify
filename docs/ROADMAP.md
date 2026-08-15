@@ -76,6 +76,11 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 
 **Outcome:** Attach useful, integrity-checked browser and process evidence to real verification results.
 
+**Implemented boundary:** M5 provides caller-rooted artifact storage, a portable v1 manifest,
+secret-aware browser capture configuration, real opt-in Chromium artifacts, integrity verification,
+and the browser-outcome result bridge. It does not start applications, drive the CLI verification
+flow, or build browser-backed proof receipts.
+
 **Done when:**
 
 - Configured screenshots, Playwright traces, console errors, bounded network summaries, and server/process logs can be captured.
@@ -83,6 +88,10 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 - Artifact size/count limits, secret-aware defaults, redaction behavior, and retention expectations are documented and tested.
 - A reviewer can move a run directory and still resolve receipt evidence through relative paths.
 - Missing/corrupt artifacts are detected and cannot support a conclusive result silently.
+- Network summaries omit bodies, headers, cookies, queries, and fragments; text redaction is
+  best-effort, while explicitly enabled screenshots and traces may contain sensitive page data.
+- Artifact retention remains caller controlled, and SHA-256 metadata is an integrity indicator
+  rather than cryptographic attestation.
 
 ## M6 — End-to-end local verification
 

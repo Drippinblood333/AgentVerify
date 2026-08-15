@@ -3,14 +3,21 @@
 import json
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from socket import socket
 from threading import Thread
 
 import pytest
 
-from agentverify.browser import BaseURLValidationError, BrowserVerifier
+from agentverify.browser import (
+    BaseURLValidationError,
+    BrowserEvidenceConfig,
+    BrowserVerifier,
+)
 from agentverify.browser_plan import BrowserVerificationPlan
 from agentverify.domain import Verdict
+from agentverify.evidence import EvidenceKind, EvidenceLimits, EvidenceStore
+from agentverify.run import build_browser_verification_results
 
 FIXTURE_HTML = b"""<!doctype html>
 <html lang="en">
@@ -24,7 +31,11 @@ FIXTURE_HTML = b"""<!doctype html>
       if (localStorage.getItem("touched") === null) {
         document.querySelector("#clean-context").hidden = false;
       }
-      document.querySelector("#greet").addEventListener("click", () => {
+      document.querySelector("#greet").addEventListener("click", async () => {
+        console.error("Authorization: Bearer console-secret password=hunter2");
+        await fetch("/api/ping?token=network-secret");
+        setTimeout(() => { throw new Error("runtime token=runtime-secret"); }, 0);
+        await new Promise((resolve) => setTimeout(resolve, 30));
         const name = document.querySelector("#name").value;
         const message = document.querySelector("#message");
         message.textContent = `Hello, ${name}!`;
@@ -41,6 +52,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
     """Serve one maintained static browser fixture without external dependencies."""
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path.startswith("/api/ping"):
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(FIXTURE_HTML)))
@@ -193,3 +212,141 @@ def test_unreachable_local_application_is_unknown() -> None:
     assert result.verdict is Verdict.UNKNOWN
     assert result.reason == "navigate could not execute at step 1"
     assert result.failed_step_index == 0
+
+
+def test_default_browser_evidence_policy_is_minimal() -> None:
+    assert BrowserEvidenceConfig() == BrowserEvidenceConfig(
+        capture_browser_observation=True,
+        capture_screenshot=False,
+        capture_trace=False,
+        capture_console_errors=False,
+        capture_network_summary=False,
+    )
+
+
+def test_real_browser_captures_and_verifies_opt_in_rich_evidence(
+    local_app_url: str,
+    tmp_path: Path,
+) -> None:
+    plan = browser_plan(
+        [
+            {
+                "id": "AC-RICH",
+                "description": "Greeting produces rich evidence",
+                "procedure": procedure(
+                    {"type": "navigate", "path": "/"},
+                    {"type": "fill", "selector": "#name", "value": "Ada"},
+                    {"type": "click", "selector": "#greet"},
+                    {"type": "assert_visible", "selector": "#message"},
+                    timeout_ms=2_000,
+                ),
+            }
+        ]
+    )
+    store = EvidenceStore(tmp_path)
+
+    executions = BrowserVerifier(local_app_url).verify_with_evidence(
+        plan,
+        evidence_store=store,
+        config=BrowserEvidenceConfig(
+            capture_screenshot=True,
+            capture_trace=True,
+            capture_console_errors=True,
+            capture_network_summary=True,
+        ),
+    )
+    manifest = store.build_manifest()
+    store.verify_manifest(manifest)
+
+    assert executions[0].verdict is Verdict.PASS
+    assert executions[0].evidence_issues == ()
+    assert len(executions[0].evidence_refs) == 5
+    by_kind = {artifact.kind: artifact for artifact in manifest.artifacts}
+    assert set(by_kind) == {
+        EvidenceKind.BROWSER_OBSERVATION,
+        EvidenceKind.SCREENSHOT,
+        EvidenceKind.PLAYWRIGHT_TRACE,
+        EvidenceKind.CONSOLE_ERRORS,
+        EvidenceKind.NETWORK_SUMMARY,
+    }
+
+    screenshot = tmp_path / by_kind[EvidenceKind.SCREENSHOT].relative_path
+    assert screenshot.stat().st_size > 0
+    assert screenshot.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+    trace = tmp_path / by_kind[EvidenceKind.PLAYWRIGHT_TRACE].relative_path
+    assert trace.stat().st_size > 0
+    assert trace.read_bytes().startswith(b"PK")
+    assert by_kind[EvidenceKind.PLAYWRIGHT_TRACE].media_type == "application/zip"
+
+    console_artifact = by_kind[EvidenceKind.CONSOLE_ERRORS]
+    console_text = (tmp_path / console_artifact.relative_path).read_text(encoding="utf-8")
+    assert "console.error" in console_text
+    assert "pageerror" in console_text
+    assert "[REDACTED]" in console_text
+    assert "console-secret" not in console_text
+    assert "hunter2" not in console_text
+    assert "runtime-secret" not in console_text
+    assert console_artifact.redacted is True
+
+    network_text = (
+        tmp_path / by_kind[EvidenceKind.NETWORK_SUMMARY].relative_path
+    ).read_text(encoding="utf-8")
+    network_payload = json.loads(network_text)
+    ping_entries = [
+        entry for entry in network_payload["entries"] if entry["path"] == "/api/ping"
+    ]
+    assert ping_entries
+    assert ping_entries[0]["method"] == "GET"
+    assert ping_entries[0]["status"] == 200
+    assert "network-secret" not in network_text
+    assert "?" not in network_text
+
+    results = build_browser_verification_results(
+        plan=plan,
+        executions=executions,
+        manifest=manifest,
+        evidence_root=tmp_path,
+    )
+    assert results[0].verdict is Verdict.PASS
+    assert results[0].evidence_refs == executions[0].evidence_refs
+
+
+def test_evidence_capture_failure_does_not_become_application_fail(
+    local_app_url: str,
+    tmp_path: Path,
+) -> None:
+    plan = browser_plan(
+        [
+            {
+                "id": "AC-LIMITED",
+                "description": "Minimal observation survives a rich capture limit",
+                "procedure": procedure(
+                    {"type": "navigate", "path": "/"},
+                    {"type": "assert_visible", "selector": "#clean-context"},
+                ),
+            }
+        ]
+    )
+    store = EvidenceStore(
+        tmp_path,
+        limits=EvidenceLimits(max_artifacts_per_criterion=1),
+    )
+
+    execution = BrowserVerifier(local_app_url).verify_with_evidence(
+        plan,
+        evidence_store=store,
+        config=BrowserEvidenceConfig(capture_screenshot=True),
+    )[0]
+
+    assert execution.verdict is Verdict.PASS
+    assert execution.evidence_issues == ("screenshot capture failed",)
+    assert len(execution.evidence_refs) == 1
+    assert store.artifacts[0].kind is EvidenceKind.BROWSER_OBSERVATION
+    result = build_browser_verification_results(
+        plan=plan,
+        executions=(execution,),
+        manifest=store.build_manifest(),
+        evidence_root=tmp_path,
+    )[0]
+    assert result.verdict is Verdict.PASS

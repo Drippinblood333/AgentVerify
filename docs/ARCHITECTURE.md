@@ -4,9 +4,10 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M4 implements versioned plan rules, fixture-derived
-receipts, and deterministic browser execution at the library level. Browser outcomes remain
-separate from final results because durable evidence artifacts are not implemented until M5.
+M0 defined these boundaries and contracts. M5 implements versioned plan rules, fixture-derived
+receipts, deterministic browser execution, bounded durable evidence, integrity verification, and
+the narrow conversion from browser outcomes to real verification results. Application lifecycle,
+CLI composition, and browser-backed proof receipts remain deferred to M6.
 
 ## System context and trust boundary
 
@@ -18,8 +19,8 @@ Local execution is not strong isolation. Before the isolated-environment milesto
 
 These are the product's conceptual schemas. Plan v1 retains the criteria-only M2 contract. Plan v2
 adds immutable `BrowserAcceptanceCriterion` and `BrowserProcedure` models. M3's evidence-requiring
-`VerificationResult` and proof receipt remain unchanged. Exact run persistence and evidence schemas
-belong to later milestones.
+`VerificationResult` and proof receipt remain unchanged. M5 adds immutable `EvidenceArtifact` and
+`EvidenceManifest` models without adding evidence policy to either plan version.
 
 ### Task
 
@@ -39,7 +40,12 @@ The outcome for exactly one criterion. It contains the criterion identifier, `PA
 
 ### Evidence
 
-Metadata for an observation produced during verification: a stable identifier, kind, relative artifact path or inline bounded value, media type, capture time, producing verifier, size, cryptographic digest, and redaction status. Examples include command output, test reports, screenshots, traces, console errors, network summaries, and server logs. Evidence is an observation, not a verdict by itself.
+Metadata for an observation produced during verification: a stable identifier, fixed kind, portable
+relative artifact path, media type, UTC capture time, producing verifier, byte size, SHA-256 digest,
+criterion association when applicable, and redaction status. M5 supports browser observations,
+screenshots, Playwright traces, console errors, bounded network summaries, and caller-supplied
+process logs. Evidence is an observation, not a verdict by itself, and its digest is an integrity
+indicator rather than cryptographic attestation.
 
 ### ProofReceipt
 
@@ -59,16 +65,35 @@ criteria, aggregate a run, render receipts, or decide whether an implementation 
 
 ### BrowserVerifier
 
-The M4 library executor backed by Playwright. It accepts a loopback HTTP(S) origin separately from a
+The browser library executor backed by Playwright. It accepts a loopback HTTP(S) origin separately from a
 frozen Plan v2, launches one headless Chromium browser with a fixed viewport, and gives each
 criterion a fresh `BrowserContext` and page. It executes only `navigate`, `fill`, `click`, and
-`assert_visible`, using bounded timeouts and Playwright auto-waiting. It returns an internal
-`BrowserExecutionResult`, not M3 `VerificationResult` or `ProofReceipt` data. Screenshots, traces,
-console logs, network summaries, and other durable observations belong to M5.
+`assert_visible`, using bounded timeouts and Playwright auto-waiting. The original M4 path still
+returns only internal `BrowserExecutionResult` objects and requires no filesystem. M5's explicit
+evidence-enabled path reuses that same step engine, records only a minimal observation by default,
+and requires opt-in for screenshots, traces, console errors, and network summaries.
 
 Fresh contexts isolate cookies, local storage, session storage, and page state between criteria.
 They do not isolate the browser or application from the host. The externally started application
 runs with normal user permissions, and loaded pages may make third-party network requests.
+
+### EvidenceStore and result bridge
+
+`EvidenceStore` owns bounded, non-overwriting local artifact writes beneath a caller-supplied run
+root. Finalized bytes are measured from disk, recorded with portable relative paths, and checked for
+regular-file containment, size, and SHA-256 digest. The manifest can move with its complete run
+directory. Default limits are 128 artifacts per run, eight per criterion, 16 MiB per artifact,
+256 KiB per text artifact, 100 console entries, and 200 network entries.
+
+Rich capture is privacy-sensitive. Network summaries omit headers, bodies, cookies, queries, and
+fragments. Console/runtime errors and process-log text receive best-effort common-secret redaction;
+screenshots and traces may still contain page data. Evidence retention is controlled by the caller.
+
+The M5 result bridge requires exact Plan v2 criterion coverage. A browser `PASS` or `FAIL` becomes a
+conclusive `VerificationResult` only when every referenced artifact is present in the supplied
+manifest and passes integrity verification. Missing, unsafe, or corrupt evidence downgrades that
+outcome to `UNKNOWN`; evidence never upgrades an existing `UNKNOWN`. The bridge stops at results and
+does not render a receipt or manage an application process.
 
 ### CLI
 
@@ -129,7 +154,8 @@ browser procedure, `PASS` means every step and declared assertion succeeded. `FA
 explicit assertion contradicted the criterion. `UNKNOWN` means execution could not establish the
 criterion, including browser infrastructure failure, unreachable navigation, or a fill/click failure
 before an assertion. Unexpected AgentVerify programming bugs still surface rather than being
-silently converted to `UNKNOWN`.
+silently converted to `UNKNOWN`. Evidence capture failure is not an application `FAIL`; insufficient
+or invalid durable evidence prevents a conclusive outcome from crossing into the domain result.
 
 ## Largest technical risks
 
