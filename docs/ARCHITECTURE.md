@@ -4,7 +4,7 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M2 implements only the plan-related domain rules and loading described below; verification execution and later models remain unimplemented.
+M0 defined these boundaries and contracts. M3 implements plan-related domain rules, fixture-derived results, and pure proof-receipt construction and rendering; verification execution and evidence artifacts remain unimplemented.
 
 ## System context and trust boundary
 
@@ -14,7 +14,7 @@ Local execution is not strong isolation. Before the isolated-environment milesto
 
 ## Core concepts
 
-These are the product's conceptual schemas. M2 implements `AcceptanceCriterion`, a minimal `VerificationPlan` with the task represented as a string, and `Verdict`. Exact run, result, evidence, and receipt schemas belong to their later milestones.
+These are the product's conceptual schemas. M3 implements `AcceptanceCriterion`, a minimal `VerificationPlan` with the task represented as a string, `Verdict`, a minimal fixture-supplied `VerificationResult`, and a proof receipt snapshot. Exact run persistence and evidence schemas belong to later milestones.
 
 ### Task
 

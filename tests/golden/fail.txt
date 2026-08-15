@@ -1,0 +1,24 @@
+AGENTVERIFY PROOF RECEIPT
+
+Task: Implement password reset
+Plan: sha256:b29aa3da660a1ad6474ed475abf617a2dc79f77b686724eb6a2b8ee1e3af1e91
+Verdict: FAIL
+Run completed: yes
+AgentVerify: 0.1.0.dev0
+Python: 3.14.3
+Platform: Windows
+
+Criteria
+
+PASS    AC-001  A user can request a password reset
+        Reason: Reset request returned the expected state.
+        Evidence: fixtures/reset-request.json
+
+FAIL    AC-002  Invalid reset tokens are rejected
+        Reason: Invalid reset token was accepted.
+        Evidence: fixtures/invalid-token.json
+
+Limitations
+
+- Results were supplied as fixtures.
+- No application execution occurred.
