@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify validates Verification Plan v1 and v2 files, constructs deterministic proof receipts from supplied fixture results, and can execute explicit browser procedures against an already-running local web application through its Python library. Durable browser evidence and complete CLI verification are not implemented yet.
+> **Status: early development.** AgentVerify validates Verification Plan v1 and v2 files, constructs deterministic proof receipts from supplied fixture results, and can execute explicit browser procedures with durable, integrity-checked evidence against an already-running local web application through its Python library. Complete CLI verification is not implemented yet.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -28,13 +28,16 @@ Currently implemented:
 - the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule; and
 - deterministic JSON and plain-text proof receipts from validated fixture results; and
 - headless Chromium execution of strict `navigate`, `fill`, `click`, and
-  `assert_visible` procedures against a loopback HTTP(S) application.
+  `assert_visible` procedures against a loopback HTTP(S) application; and
+- bounded local evidence artifacts, a portable manifest, integrity verification, and an
+  evidence-gated conversion from browser outcomes to `VerificationResult` objects.
 
 Browser execution is currently a library-level capability. It assumes the application is already
-running, gives every criterion a fresh browser context, and returns internal execution outcomes. It
-does **not** capture durable evidence or convert real browser outcomes into proof receipts. Fixture
-receipts remain separate and are not evidence that an application was run. Persistent evidence
-arrives in M5; application lifecycle and the complete CLI verification flow arrive in M6.
+running and gives every criterion a fresh browser context. The explicit evidence-enabled path stores
+artifacts beneath a caller-supplied run root using portable relative paths. It can convert browser
+outcomes into real `VerificationResult` objects only after referenced artifacts pass path, size, and
+SHA-256 checks. Browser results remain separate from proof receipts until M6; fixture receipts are
+not evidence that an application was run. AgentVerify still does not start or manage applications.
 
 Install the package and development tools from a local checkout, then install
 Playwright-managed Chromium for browser verification:
@@ -120,6 +123,27 @@ The library accepts only loopback `http` or `https` base URLs, launches Playwrig
 headlessly with a fixed 1280×720 viewport, and creates a fresh `BrowserContext` for every criterion.
 This is browser-state isolation only, not a sandbox: the already-running application has normal user
 permissions, and a loaded page may still make third-party network requests.
+
+## Evidence capture
+
+The default evidence policy stores one small JSON browser-observation summary per criterion. This is
+the baseline durable observation required for browser `PASS` or `FAIL` to become a conclusive
+`VerificationResult`; screenshots, traces, console errors, and network summaries are supplemental
+and cannot authorize a conclusive result by themselves. Rich captures require explicit run-level
+opt-in and are not fields in Plan v2. Defaults are bounded to 128 artifacts per run, eight per
+criterion, 16 MiB per artifact, and 256 KiB per textual artifact; console and network collection are
+capped at 100 and 200 entries respectively.
+
+Network summaries contain method, scheme, host, path, status, resource type, and success state. They
+exclude bodies, cookies, headers, URL query strings, and fragments. Console/runtime error and
+caller-supplied process-log text passes through small best-effort redaction for common authorization,
+password, token, API-key, and secret forms. This is not a guarantee that arbitrary application
+content contains no secrets. Explicit screenshots and traces may contain sensitive visible page
+data or browser state.
+
+Artifacts and `evidence-manifest.json` are retained under the caller-supplied run root; retention and
+deletion are currently the caller's responsibility. Manifest SHA-256 values detect byte changes but
+are integrity indicators, not signatures, authentication, or cryptographic attestation.
 
 ## Intended workflow
 
