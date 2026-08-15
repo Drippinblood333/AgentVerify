@@ -97,7 +97,7 @@ def test_load_plan_rejects_malformed_json(tmp_path: Path) -> None:
                 "task": "Task",
                 "criteria": [{"id": "AC-001", "description": "Works"}],
             },
-            "schema_version",
+            "criteria.0.procedure",
         ),
         (
             {

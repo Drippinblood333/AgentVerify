@@ -8,7 +8,10 @@ dynamic = ["version"]
 description = "Independent, evidence-first verification for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2,<3"]
+dependencies = [
+  "playwright>=1.61,<2",
+  "pydantic>=2,<3",
+]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Environment :: Console",

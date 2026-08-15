@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "task": "Verify greeting flow",
+  "criteria": [
+    {
+      "id": "AC-001",
+      "description": "A greeting becomes visible after entering a name",
+      "procedure": {
+        "type": "browser",
+        "timeout_ms": 5000,
+        "steps": [
+          {
+            "type": "navigate",
+            "path": "/"
+          },
+          {
+            "type": "fill",
+            "selector": "#name",
+            "value": "Ada"
+          },
+          {
+            "type": "click",
+            "selector": "#greet"
+          },
+          {
+            "type": "assert_visible",
+            "selector": "#message"
+          }
+        ]
+      }
+    }
+  ]
+}

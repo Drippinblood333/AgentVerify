@@ -157,7 +157,7 @@ def test_verify_rejects_invalid_schema(
     capsys: CaptureFixture[str],
 ) -> None:
     plan = tmp_path / "invalid.json"
-    invalid_plan = dict(VALID_PLAN, schema_version=2)
+    invalid_plan = dict(VALID_PLAN, schema_version=3)
     plan.write_text(json.dumps(invalid_plan), encoding="utf-8")
 
     exit_code = main(["verify", "--plan", str(plan)])
@@ -167,3 +167,40 @@ def test_verify_rejects_invalid_schema(
     assert captured.out == ""
     assert "schema_version" in captured.err
     assert_no_traceback(captured.out, captured.err)
+
+
+def test_verify_validates_v2_without_launching_browser(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "browser-plan.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "task": "Verify greeting flow",
+                "criteria": [
+                    {
+                        "id": "AC-001",
+                        "description": "Greeting appears",
+                        "procedure": {
+                            "type": "browser",
+                            "steps": [
+                                {"type": "navigate", "path": "/"},
+                                {"type": "assert_visible", "selector": "#message"},
+                            ],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(["verify", "--plan", str(plan)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_SUCCESS
+    assert "Schema version: 2" in captured.out
+    assert captured.out.endswith("Verification execution is not implemented yet.\n")
+    assert captured.err == ""

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify validates Verification Plan v1 files and can deterministically construct proof receipts from supplied fixture results. Application verification, browser automation, and evidence capture are not implemented yet.
+> **Status: early development.** AgentVerify validates Verification Plan v1 and v2 files, constructs deterministic proof receipts from supplied fixture results, and can execute explicit browser procedures against an already-running local web application through its Python library. Durable browser evidence and complete CLI verification are not implemented yet.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -26,14 +26,22 @@ Currently implemented:
 - strict validation of versioned JSON verification plans;
 - deterministic plan digests; and
 - the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule; and
-- deterministic JSON and plain-text proof receipts from validated fixture results.
+- deterministic JSON and plain-text proof receipts from validated fixture results; and
+- headless Chromium execution of strict `navigate`, `fill`, `click`, and
+  `assert_visible` procedures against a loopback HTTP(S) application.
 
-AgentVerify currently validates verification plans and can construct a receipt from known fixture results. It does **not** execute application verification or independently produce criterion verdicts. Fixture receipts include explicit limitations and are not evidence that an application was run.
+Browser execution is currently a library-level capability. It assumes the application is already
+running, gives every criterion a fresh browser context, and returns internal execution outcomes. It
+does **not** capture durable evidence or convert real browser outcomes into proof receipts. Fixture
+receipts remain separate and are not evidence that an application was run. Persistent evidence
+arrives in M5; application lifecycle and the complete CLI verification flow arrive in M6.
 
-Install the package and development tools from a local checkout:
+Install the package and development tools from a local checkout, then install
+Playwright-managed Chromium for browser verification:
 
 ```console
 python -m pip install -e ".[dev]"
+python -m playwright install chromium
 ```
 
 Current CLI behavior:
@@ -55,9 +63,10 @@ Verification execution is not implemented yet.
 
 The exit-code policy remains intentionally small: `0` means the command completed successfully, while `2` means invalid command usage or input. Verification verdict exit codes do not exist yet.
 
-## Verification Plan v1
+## Verification Plan versions
 
-M2 supports one strict JSON format. Unknown fields are rejected, every string must contain non-whitespace text, and each criterion ID must be unique within its plan.
+Plan v1 remains the published criteria-only format from M2. Its schema and canonical password-reset
+digest are unchanged:
 
 ```json
 {
@@ -77,6 +86,40 @@ M2 supports one strict JSON format. Unknown fields are rejected, every string mu
 ```
 
 See [`examples/password-reset.plan.json`](examples/password-reset.plan.json) for a valid plan. The displayed SHA-256 digest fingerprints the validated plan's canonical content; it helps detect changes but is not a security or authenticity guarantee.
+
+Plan v2 adds one strict browser procedure per criterion:
+
+```json
+{
+  "schema_version": 2,
+  "task": "Verify greeting flow",
+  "criteria": [
+    {
+      "id": "AC-001",
+      "description": "A greeting becomes visible after entering a name",
+      "procedure": {
+        "type": "browser",
+        "timeout_ms": 5000,
+        "steps": [
+          {"type": "navigate", "path": "/"},
+          {"type": "fill", "selector": "#name", "value": "Ada"},
+          {"type": "click", "selector": "#greet"},
+          {"type": "assert_visible", "selector": "#message"}
+        ]
+      }
+    }
+  ]
+}
+```
+
+See [`examples/greeting.plan.json`](examples/greeting.plan.json). Procedures must start with
+`navigate`, contain an `assert_visible`, and use a timeout from 100 to 30,000 milliseconds. Unknown
+procedure or step syntax is invalid input. Navigation paths cannot leave the supplied local origin.
+
+The library accepts only loopback `http` or `https` base URLs, launches Playwright-managed Chromium
+headlessly with a fixed 1280×720 viewport, and creates a fresh `BrowserContext` for every criterion.
+This is browser-state isolation only, not a sandbox: the already-running application has normal user
+permissions, and a loaded page may still make third-party network requests.
 
 ## Intended workflow
 
