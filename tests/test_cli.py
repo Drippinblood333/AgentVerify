@@ -1,5 +1,6 @@
-"""Observable behavior tests for the M1 command-line interface."""
+"""Observable behavior tests for the command-line interface."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,21 @@ from pytest import CaptureFixture
 
 from agentverify import __version__
 from agentverify.cli import EXIT_SUCCESS, EXIT_USAGE, main
+
+VALID_PLAN = {
+    "schema_version": 1,
+    "task": "Implement password reset",
+    "criteria": [
+        {
+            "id": "AC-001",
+            "description": "A user can request a password reset",
+        },
+        {
+            "id": "AC-002",
+            "description": "Invalid reset tokens are rejected",
+        },
+    ],
+}
 
 
 def assert_no_traceback(stdout: str, stderr: str) -> None:
@@ -42,16 +58,23 @@ def test_verify_accepts_a_regular_plan_file(
     tmp_path: Path,
     capsys: CaptureFixture[str],
 ) -> None:
-    plan = tmp_path / "plan.yaml"
-    plan.write_text("content is intentionally not parsed in M1\n", encoding="utf-8")
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps(VALID_PLAN), encoding="utf-8")
 
     exit_code = main(["verify", "--plan", str(plan)])
 
     captured = capsys.readouterr()
     assert exit_code == EXIT_SUCCESS
     assert captured.out == (
+        "Verification plan is valid.\n"
+        "\n"
+        "Task: Implement password reset\n"
+        "Criteria: 2\n"
+        "Schema version: 1\n"
+        "Plan digest: "
+        "sha256:b29aa3da660a1ad6474ed475abf617a2dc79f77b686724eb6a2b8ee1e3af1e91\n"
+        "\n"
         "Verification execution is not implemented yet.\n"
-        f"Plan: {plan.resolve()}\n"
     )
     assert captured.err == ""
     assert_no_traceback(captured.out, captured.err)
@@ -94,4 +117,53 @@ def test_verify_rejects_a_directory_plan(
     assert captured.err == (
         f"agentverify: error: plan must be a regular file: {tmp_path.resolve()}\n"
     )
+    assert_no_traceback(captured.out, captured.err)
+
+
+def test_verify_rejects_malformed_json(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "malformed.json"
+    plan.write_text("{", encoding="utf-8")
+
+    exit_code = main(["verify", "--plan", str(plan)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert captured.out == ""
+    assert "malformed JSON at line 1" in captured.err
+    assert_no_traceback(captured.out, captured.err)
+
+
+def test_verify_rejects_invalid_utf8(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "invalid-utf8.json"
+    plan.write_bytes(b"\xff")
+
+    exit_code = main(["verify", "--plan", str(plan)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert captured.out == ""
+    assert "plan is not valid UTF-8" in captured.err
+    assert_no_traceback(captured.out, captured.err)
+
+
+def test_verify_rejects_invalid_schema(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "invalid.json"
+    invalid_plan = dict(VALID_PLAN, schema_version=2)
+    plan.write_text(json.dumps(invalid_plan), encoding="utf-8")
+
+    exit_code = main(["verify", "--plan", str(plan)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert captured.out == ""
+    assert "schema_version" in captured.err
     assert_no_traceback(captured.out, captured.err)

@@ -51,7 +51,7 @@ Before claiming completion:
 - Failures must be actionable and must not silently become passes.
 - Security-sensitive values and application secrets must never be captured by default in evidence artifacts.
 
-Run the M1 development checks from the repository root after installing the development extra with `python -m pip install -e ".[dev]"`:
+Run the development checks from the repository root after installing the development extra with `python -m pip install -e ".[dev]"`:
 
 ```console
 pytest

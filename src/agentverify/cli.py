@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from agentverify import __version__
+from agentverify.plan import PlanError, load_plan, plan_digest
 
 EXIT_SUCCESS = 0
 EXIT_USAGE = 2
@@ -45,16 +46,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "verify":
-        plan = args.plan.expanduser().resolve()
-        if not plan.exists():
-            print(f"agentverify: error: plan does not exist: {plan}", file=sys.stderr)
-            return EXIT_USAGE
-        if not plan.is_file():
-            print(f"agentverify: error: plan must be a regular file: {plan}", file=sys.stderr)
+        try:
+            plan = load_plan(args.plan)
+        except PlanError as error:
+            print(f"agentverify: error: {error}", file=sys.stderr)
             return EXIT_USAGE
 
+        print("Verification plan is valid.")
+        print()
+        print(f"Task: {plan.task}")
+        print(f"Criteria: {len(plan.criteria)}")
+        print(f"Schema version: {plan.schema_version}")
+        print(f"Plan digest: {plan_digest(plan)}")
+        print()
         print("Verification execution is not implemented yet.")
-        print(f"Plan: {plan}")
         return EXIT_SUCCESS
 
     parser.error(f"unsupported command: {args.command}")

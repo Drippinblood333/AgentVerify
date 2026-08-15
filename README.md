@@ -1,6 +1,6 @@
 # AgentVerify
 
-> **Status: early development.** The M1 CLI foundation is implemented. Verification execution, plan parsing, browser automation, and proof receipts are not implemented yet.
+> **Status: early development.** AgentVerify currently validates Verification Plan v1 files. Application verification, browser automation, evidence capture, and proof receipts are not implemented yet.
 
 AgentVerify is an independent software verification layer for AI coding agents. It is intended to answer a practical question after Codex, Claude Code, Cursor, or another builder says a task is done: **does the software actually satisfy the agreed requirements when it runs?**
 
@@ -19,9 +19,11 @@ Currently implemented:
 
 - an installable Python 3.12+ package;
 - `agentverify --help` and `agentverify --version`; and
-- `agentverify verify --plan FILE`, which validates that `FILE` exists and is a regular file.
+- strict validation of versioned JSON verification plans;
+- deterministic plan digests; and
+- the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule.
 
-The `verify` command deliberately does not read the plan or execute verification in M1. Those capabilities remain planned for later milestones.
+AgentVerify currently validates verification plans. It does **not** yet execute application verification or produce criterion verdicts.
 
 Install the package and development tools from a local checkout:
 
@@ -35,19 +37,48 @@ Current CLI behavior:
 $ agentverify --version
 AgentVerify 0.1.0.dev0
 
-$ agentverify verify --plan README.md
+$ agentverify verify --plan examples/password-reset.plan.json
+Verification plan is valid.
+
+Task: Implement password reset
+Criteria: 2
+Schema version: 1
+Plan digest: sha256:...
+
 Verification execution is not implemented yet.
-Plan: /absolute/path/to/AgentVerify/README.md
 ```
 
-The M1 exit-code policy is intentionally small: `0` means the command completed successfully, while `2` means invalid command usage or input. Verification verdict exit codes do not exist yet.
+The exit-code policy remains intentionally small: `0` means the command completed successfully, while `2` means invalid command usage or input. Verification verdict exit codes do not exist yet.
+
+## Verification Plan v1
+
+M2 supports one strict JSON format. Unknown fields are rejected, every string must contain non-whitespace text, and each criterion ID must be unique within its plan.
+
+```json
+{
+  "schema_version": 1,
+  "task": "Implement password reset",
+  "criteria": [
+    {
+      "id": "AC-001",
+      "description": "A user can request a password reset"
+    },
+    {
+      "id": "AC-002",
+      "description": "Invalid reset tokens are rejected"
+    }
+  ]
+}
+```
+
+See [`examples/password-reset.plan.json`](examples/password-reset.plan.json) for a valid plan. The displayed SHA-256 digest fingerprints the validated plan's canonical content; it helps detect changes but is not a security or authenticity guarantee.
 
 ## Intended workflow
 
 The future CLI is expected to support a workflow like this (the interface is illustrative, not yet available):
 
 ```console
-$ agentverify verify --plan acceptance.yaml --app-command "python -m myapp"
+$ agentverify verify --plan acceptance.json --app-command "python -m myapp"
 
 AGENTVERIFY PROOF RECEIPT
 Task: Implement password reset

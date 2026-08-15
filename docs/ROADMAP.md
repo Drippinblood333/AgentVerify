@@ -32,7 +32,7 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 
 ## M2 — Verification data models and plan validation
 
-**Outcome:** Define Pydantic models and a versioned local plan format for tasks, frozen criteria, runs, results, evidence metadata, and receipts.
+**Outcome:** Define Pydantic models and a versioned local plan format for a task and its frozen acceptance criteria, plus minimal verdict semantics.
 
 **Done when:**
 
@@ -40,7 +40,7 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 - Invalid, empty, duplicate, or internally inconsistent criteria fail with actionable errors.
 - `PASS`/`FAIL`/`UNKNOWN` and aggregate verdict rules have exhaustive unit tests.
 - Criteria and plan snapshot digests are stable for canonical equivalent input.
-- Models contain no Playwright, Git, LLM-provider, or CLI dependencies.
+- Models contain no run persistence, evidence, receipt, Playwright, Git, LLM-provider, or CLI dependencies.
 
 ## M3 — Proof receipt generation
 
