@@ -1,6 +1,10 @@
 # AgentVerify
 
+[![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
+
 > **Status: early development.** AgentVerify currently validates Verification Plan v1 files. Application verification, browser automation, evidence capture, and proof receipts are not implemented yet.
+
+Licensed under [Apache-2.0](LICENSE).
 
 AgentVerify is an independent software verification layer for AI coding agents. It is intended to answer a practical question after Codex, Claude Code, Cursor, or another builder says a task is done: **does the software actually satisfy the agreed requirements when it runs?**
 
