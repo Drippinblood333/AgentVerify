@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify currently validates Verification Plan v1 files. Application verification, browser automation, evidence capture, and proof receipts are not implemented yet.
+> **Status: early development.** AgentVerify validates Verification Plan v1 files and can deterministically construct proof receipts from supplied fixture results. Application verification, browser automation, and evidence capture are not implemented yet.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -25,9 +25,10 @@ Currently implemented:
 - `agentverify --help` and `agentverify --version`; and
 - strict validation of versioned JSON verification plans;
 - deterministic plan digests; and
-- the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule.
+- the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule; and
+- deterministic JSON and plain-text proof receipts from validated fixture results.
 
-AgentVerify currently validates verification plans. It does **not** yet execute application verification or produce criterion verdicts.
+AgentVerify currently validates verification plans and can construct a receipt from known fixture results. It does **not** execute application verification or independently produce criterion verdicts. Fixture receipts include explicit limitations and are not evidence that an application was run.
 
 Install the package and development tools from a local checkout:
 

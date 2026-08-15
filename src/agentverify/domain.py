@@ -6,7 +6,14 @@ from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 NonBlankText = Annotated[
     str,
@@ -53,6 +60,24 @@ class Verdict(StrEnum):
     PASS = "PASS"
     FAIL = "FAIL"
     UNKNOWN = "UNKNOWN"
+
+
+class VerificationResult(BaseModel):
+    """A supplied outcome for one frozen acceptance criterion."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    criterion_id: NonBlankText
+    verdict: Verdict
+    reason: NonBlankText
+    evidence_refs: tuple[NonBlankText, ...] = ()
+
+    @model_validator(mode="after")
+    def require_evidence_for_conclusive_verdicts(self) -> VerificationResult:
+        """Require opaque evidence references for conclusive supplied results."""
+        if self.verdict in {Verdict.PASS, Verdict.FAIL} and not self.evidence_refs:
+            raise ValueError("PASS and FAIL results require at least one evidence reference")
+        return self
 
 
 def aggregate_verdict(verdicts: Sequence[Verdict]) -> Verdict:
