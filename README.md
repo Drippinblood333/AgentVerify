@@ -135,6 +135,12 @@ criterion. TCP readiness only establishes that the configured endpoint accepts c
 is browser-state isolation, not a sandbox: the application command executes with the current user's
 working directory, environment, and permissions, and a loaded page may make third-party requests.
 
+Before starting the managed command, the CLI requires the configured endpoint to be closed. It then
+waits for the endpoint to begin accepting connections after startup. An already-listening endpoint
+is rejected with exit code `2` so an obvious stale or unrelated service cannot be attributed to the
+managed command. This closed-to-accepting check is an attribution guard, not cryptographic process
+identity or proof of port ownership.
+
 ## Evidence capture
 
 The default evidence policy stores one small JSON browser-observation summary per criterion. This is
@@ -177,8 +183,9 @@ deletion remain the user's responsibility.
 ## Troubleshooting
 
 - **Chromium is missing:** run `python -m playwright install chromium`.
-- **Port already in use:** choose another port and pass the same value in `--base-url` and after the
-  final `--app-command ... --port` argument.
+- **Port already in use or already accepting connections:** choose another free port and pass the
+  same value in `--base-url` and after the final `--app-command ... --port` argument. AgentVerify
+  refuses to start the command when it cannot safely attribute an already-listening endpoint.
 - **Application never becomes ready:** check the configured host/port and inspect the process-log
   artifact; increase `--startup-timeout-ms` only when startup legitimately needs more time.
 - **Run directory already contains files:** choose a new directory or explicitly empty the intended

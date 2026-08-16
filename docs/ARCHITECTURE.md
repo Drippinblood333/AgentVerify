@@ -103,17 +103,23 @@ bridge stops at results and does not render a receipt or manage an application p
 and environment. It immediately merges and continuously drains stdout/stderr while retaining a
 bounded prefix. TCP readiness against the validated loopback origin is deadline-bound and checks
 for early process exit. Shutdown requests termination, waits briefly, escalates to force-kill, and
-waits for the direct child. POSIX launches use a separate session and signal its process group;
-Windows guarantees the directly managed process only. This adapter never decides a verdict.
+waits for owned processes to disappear. POSIX launches use a separate session and own that process
+group even if its direct group leader exits before cleanup; the group receives bounded SIGTERM then
+SIGKILL escalation when necessary. Windows continues to guarantee the directly managed process
+only. This adapter never decides a verdict.
 
 ### Local verification orchestration
 
-The M6 use case preflights a new or empty run directory before process startup. After readiness it
-uses the existing evidence-enabled `BrowserVerifier`, stops the application, stores bounded process
-output, verifies and writes the evidence manifest, reloads and verifies that durable manifest, and
-only then calls the M5 result bridge. Operational failures before browser execution produce ordered
-`UNKNOWN` results without fabricated browser observations. Application exit or interruption marks
-the run incomplete while preserving any real `FAIL` already established.
+The M6 use case first validates the loopback origin and probes its TCP endpoint before creating
+permanent run output or starting the command. An endpoint that is already accepting connections is
+invalid run configuration; requiring a closed-to-accepting transition prevents obvious stale-service
+attribution but does not prove PID-level port ownership. The use case then preflights a new or empty
+run directory. After readiness it uses the existing evidence-enabled `BrowserVerifier`, stops the
+application, stores bounded process output, verifies and writes the evidence manifest, reloads and
+verifies that durable manifest, and only then calls the M5 result bridge. Operational failures before
+browser execution produce ordered `UNKNOWN` results without fabricated browser observations.
+Application exit or interruption marks the run incomplete while preserving any real `FAIL` already
+established.
 
 Receipt construction remains pure and accepts either supported plan version through their shared
 task and criterion snapshots. M6 invokes it with executable Plan v2 results, real Python/platform

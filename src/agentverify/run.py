@@ -15,6 +15,7 @@ from agentverify.application import (
     ApplicationStartError,
     ManagedApplication,
     ProcessOutput,
+    endpoint_accepts_connection,
 )
 from agentverify.browser import BrowserExecutionResult, BrowserVerifier
 from agentverify.browser_plan import BrowserVerificationPlan
@@ -177,6 +178,12 @@ def verify_local_application(
         startup_timeout_ms=startup_timeout_ms,
     )
     verifier = BrowserVerifier(base_url)
+    if endpoint_accepts_connection(base_url):
+        raise RunConfigurationError(
+            "configured application endpoint is already accepting connections; "
+            "choose a different free port so AgentVerify can attribute readiness "
+            "to the managed application"
+        )
     run_root = _prepare_run_directory(run_dir)
     store = EvidenceStore(run_root)
     limitations = list(_BASE_LIMITATIONS)

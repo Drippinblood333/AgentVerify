@@ -15,6 +15,7 @@ from typing import BinaryIO
 from urllib.parse import urlsplit
 
 _WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+_POSIX_FORCE_KILL = getattr(signal, "SIGKILL", 9)
 
 
 class ApplicationError(Exception):
@@ -26,7 +27,7 @@ class ApplicationStartError(ApplicationError):
 
 
 class ApplicationCleanupError(ApplicationError):
-    """The directly managed application process could not be stopped."""
+    """The managed application lifecycle could not be cleaned up."""
 
 
 class ApplicationState(StrEnum):
@@ -108,6 +109,33 @@ class _BoundedOutputDrain:
         return ProcessOutput(text=f"{decoded}{marker}", truncated=truncated)
 
 
+def _endpoint_address(base_url: str) -> tuple[str, int]:
+    parsed = urlsplit(base_url)
+    host = parsed.hostname
+    if host is None:
+        raise ValueError("base URL must include a host")
+    return host, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def endpoint_accepts_connection(
+    base_url: str,
+    *,
+    timeout_seconds: float = 0.2,
+) -> bool:
+    """Return whether the validated local endpoint currently accepts TCP."""
+    if timeout_seconds <= 0:
+        raise ValueError("endpoint probe timeout must be positive")
+    try:
+        connection = socket.create_connection(
+            _endpoint_address(base_url),
+            timeout=timeout_seconds,
+        )
+    except OSError:
+        return False
+    connection.close()
+    return True
+
+
 class ManagedApplication:
     """Own one local child process, its output drain, readiness, and cleanup."""
 
@@ -181,11 +209,7 @@ class ManagedApplication:
         poll_interval_seconds: float = 0.05,
     ) -> ReadinessResult:
         """Wait until the configured loopback endpoint accepts a TCP connection."""
-        parsed = urlsplit(base_url)
-        host = parsed.hostname
-        if host is None:
-            raise ValueError("base URL must include a host")
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        address = _endpoint_address(base_url)
         deadline = time.monotonic() + timeout_ms / 1000
 
         while True:
@@ -199,7 +223,7 @@ class ManagedApplication:
 
             try:
                 connection = socket.create_connection(
-                    (host, port),
+                    address,
                     timeout=min(0.2, remaining),
                 )
             except OSError:
@@ -222,18 +246,33 @@ class ManagedApplication:
         return True
 
     def stop(self, *, grace_seconds: float = 0.5) -> ShutdownResult:
-        """Terminate, then force-kill if needed, and prove the direct child is gone."""
+        """Stop the direct child and, on POSIX, its dedicated process group."""
+        if os.name == "nt":
+            return self._stop_windows(grace_seconds=grace_seconds)
+        return self._stop_posix(grace_seconds=grace_seconds)
+
+    def _stop_windows(self, *, grace_seconds: float) -> ShutdownResult:
         existing_exit = self._process.poll()
         if existing_exit is not None:
             self._join_reader()
             return ShutdownResult(existing_exit, force_killed=False)
 
         self.state = ApplicationState.SHUTDOWN_REQUESTED
-        self._request_termination()
+        try:
+            self._process.terminate()
+        except OSError as error:
+            raise ApplicationCleanupError(
+                "application process could not be terminated"
+            ) from error
         try:
             exit_code = self._process.wait(timeout=grace_seconds)
         except subprocess.TimeoutExpired:
-            self._force_kill()
+            try:
+                self._process.kill()
+            except OSError as error:
+                raise ApplicationCleanupError(
+                    "application process could not be force terminated"
+                ) from error
             try:
                 exit_code = self._process.wait(timeout=grace_seconds)
             except subprocess.TimeoutExpired as error:
@@ -251,29 +290,83 @@ class ManagedApplication:
             raise ApplicationCleanupError("application process cleanup was not confirmed")
         return ShutdownResult(exit_code, force_killed=force_killed)
 
+    def _stop_posix(self, *, grace_seconds: float) -> ShutdownResult:
+        existing_exit = self._process.poll()
+        if existing_exit is not None and not self._process_group_exists():
+            self._join_reader()
+            return ShutdownResult(existing_exit, force_killed=False)
+
+        preserve_exit_state = self.state in {
+            ApplicationState.EXITED_BEFORE_READINESS,
+            ApplicationState.EXITED_UNEXPECTEDLY,
+        }
+        if not preserve_exit_state:
+            self.state = ApplicationState.SHUTDOWN_REQUESTED
+
+        self._signal_process_group(signal.SIGTERM)
+        exit_code = self._wait_for_process_group_shutdown(grace_seconds)
+        force_killed = False
+        if exit_code is None:
+            self._signal_process_group(_POSIX_FORCE_KILL)
+            if self._process.poll() is None:
+                try:
+                    self._process.kill()
+                except OSError as error:
+                    raise ApplicationCleanupError(
+                        "application process could not be force terminated"
+                    ) from error
+            exit_code = self._wait_for_process_group_shutdown(grace_seconds)
+            if exit_code is None:
+                raise ApplicationCleanupError(
+                    "managed process group remained alive after force termination"
+                )
+            force_killed = True
+
+        if not preserve_exit_state:
+            self.state = (
+                ApplicationState.FORCE_KILLED
+                if force_killed
+                else ApplicationState.TERMINATED
+            )
+        self._join_reader()
+        return ShutdownResult(exit_code, force_killed=force_killed)
+
     def output(self) -> ProcessOutput:
         """Return the retained combined process output after cleanup."""
         if self._process.poll() is not None:
             self._join_reader()
         return self._drain.snapshot()
 
-    def _request_termination(self) -> None:
+    def _process_group_exists(self) -> bool:
         try:
-            if os.name == "nt":
-                self._process.terminate()
-            else:
-                os.kill(-self._process.pid, signal.SIGTERM)
+            os.kill(-self._process.pid, 0)
         except ProcessLookupError:
-            return
+            return False
+        except OSError as error:
+            raise ApplicationCleanupError(
+                "managed process group could not be inspected"
+            ) from error
+        return True
 
-    def _force_kill(self) -> None:
+    def _signal_process_group(self, requested_signal: int) -> None:
         try:
-            if os.name == "nt":
-                self._process.kill()
-            else:
-                os.kill(-self._process.pid, 9)
+            os.kill(-self._process.pid, requested_signal)
         except ProcessLookupError:
             return
+        except OSError as error:
+            raise ApplicationCleanupError(
+                "managed process group could not be signalled"
+            ) from error
+
+    def _wait_for_process_group_shutdown(self, timeout_seconds: float) -> int | None:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            exit_code = self._process.poll()
+            if exit_code is not None and not self._process_group_exists():
+                return exit_code
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.01)
 
     def _join_reader(self) -> None:
         self._reader.join(timeout=1)

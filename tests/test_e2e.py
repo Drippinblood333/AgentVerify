@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, main
+from agentverify.application import endpoint_accepts_connection
+from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
 from agentverify.domain import Verdict
 from agentverify.evidence import EvidenceKind, EvidenceStore
 from agentverify.receipt import ProofReceipt
@@ -35,6 +36,11 @@ def process_is_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
+    proc_stat = Path(f"/proc/{pid}/stat")
+    if proc_stat.exists():
+        fields = proc_stat.read_text(encoding="utf-8").split()
+        if len(fields) > 2 and fields[2] == "Z":
+            return False
     return True
 
 
@@ -294,6 +300,123 @@ def test_application_exit_before_readiness_is_unknown_with_process_log(
     )
     assert receipt.criteria[0].reason == "Application exited before readiness"
     assert EvidenceKind.PROCESS_LOG in kinds
+
+
+def test_preexisting_endpoint_is_rejected_without_starting_managed_command(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    port = unused_tcp_port()
+    base_url = f"http://127.0.0.1:{port}"
+    external_server = subprocess.Popen(
+        [sys.executable, str(SAMPLE_APP), "--port", str(port)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    managed_pid_file = tmp_path / "managed.pid"
+    run_dir = tmp_path / "conflicting-run"
+    managed_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 5
+        while (
+            not endpoint_accepts_connection(base_url, timeout_seconds=0.05)
+            and time.monotonic() < deadline
+        ):
+            if external_server.poll() is not None:
+                break
+            time.sleep(0.01)
+        assert endpoint_accepts_connection(base_url) is True
+
+        managed_code = (
+            "import os, pathlib, time; "
+            f"pathlib.Path({str(managed_pid_file)!r}).write_text(str(os.getpid())); "
+            "time.sleep(60)"
+        )
+        exit_code = main(
+            [
+                "verify",
+                "--plan",
+                str(PASS_PLAN),
+                "--base-url",
+                base_url,
+                "--run-dir",
+                str(run_dir),
+                "--app-command",
+                sys.executable,
+                "-c",
+                managed_code,
+            ]
+        )
+        if managed_pid_file.exists():
+            managed_pid = read_pid(managed_pid_file)
+    finally:
+        cleanup_pid(managed_pid)
+        if external_server.poll() is None:
+            external_server.terminate()
+            try:
+                external_server.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                external_server.kill()
+                external_server.wait(timeout=2)
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "endpoint is already accepting connections" in captured.err
+    assert captured.out == ""
+    assert not managed_pid_file.exists()
+    assert not run_dir.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX orphaned process-group E2E test")
+def test_early_exit_e2e_cleans_orphaned_descendant_process_group(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    port = unused_tcp_port()
+    run_dir = tmp_path / "orphan-run"
+    child_pid_file = tmp_path / "orphan-child.pid"
+    parent_code = (
+        "import pathlib, subprocess, sys; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        f"pathlib.Path({str(child_pid_file)!r}).write_text(str(child.pid))"
+    )
+    child_pid: int | None = None
+    try:
+        exit_code = main(
+            [
+                "verify",
+                "--plan",
+                str(PASS_PLAN),
+                "--base-url",
+                f"http://127.0.0.1:{port}",
+                "--run-dir",
+                str(run_dir),
+                "--startup-timeout-ms",
+                "1000",
+                "--app-command",
+                sys.executable,
+                "-c",
+                parent_code,
+            ]
+        )
+        assert child_pid_file.is_file()
+        child_pid = read_pid(child_pid_file)
+    finally:
+        if child_pid is None and child_pid_file.exists():
+            child_pid = read_pid(child_pid_file)
+        cleanup_pid(child_pid)
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "Verdict: UNKNOWN" in captured.out
+    assert child_pid is not None and not process_is_alive(child_pid)
+    receipt, kinds = assert_review_directory(
+        run_dir,
+        expected_verdict=Verdict.UNKNOWN,
+        completed=False,
+    )
+    assert receipt.criteria[0].reason == "Application exited before readiness"
+    assert EvidenceKind.BROWSER_OBSERVATION not in kinds
 
 
 @pytest.mark.skipif(os.name == "nt", reason="reliable CLI SIGINT test is POSIX-specific")

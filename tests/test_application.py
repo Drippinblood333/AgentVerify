@@ -14,6 +14,7 @@ from agentverify.application import (
     ApplicationStartError,
     ApplicationState,
     ManagedApplication,
+    endpoint_accepts_connection,
 )
 
 SAMPLE_APP = Path(__file__).parents[1] / "examples" / "greeting_app.py"
@@ -103,6 +104,25 @@ def test_readiness_timeout_then_cleanup_leaves_direct_process_dead() -> None:
     assert application.poll() is not None
 
 
+def test_unused_endpoint_allows_normal_startup_and_readiness() -> None:
+    port = unused_tcp_port()
+    base_url = f"http://127.0.0.1:{port}"
+    assert endpoint_accepts_connection(base_url, timeout_seconds=0.05) is False
+
+    application = ManagedApplication.start(
+        [sys.executable, str(SAMPLE_APP), "--port", str(port)],
+        max_log_bytes=4096,
+    )
+    try:
+        readiness = application.wait_for_readiness(base_url, timeout_ms=5000)
+        assert readiness.ready is True
+        assert endpoint_accepts_connection(base_url) is True
+    finally:
+        application.stop(grace_seconds=0.2)
+
+    assert application.poll() is not None
+
+
 @pytest.mark.skipif(os.name == "nt", reason="SIGTERM ignore/escalation is POSIX-specific")
 def test_shutdown_escalates_to_force_kill_when_termination_is_ignored(
 ) -> None:
@@ -166,3 +186,48 @@ def test_posix_shutdown_cleans_a_descendant_in_the_managed_process_group(
             os.kill(child_pid, 9)
 
     assert child_pid is not None and not process_is_running(child_pid)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX orphaned process-group cleanup test")
+def test_posix_shutdown_cleans_descendant_after_group_leader_exits(
+    tmp_path: Path,
+) -> None:
+    port = unused_tcp_port()
+    child_pid_file = tmp_path / "orphan-child.pid"
+    parent_code = (
+        "import pathlib, subprocess, sys; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        f"pathlib.Path({str(child_pid_file)!r}).write_text(str(child.pid))"
+    )
+    application = ManagedApplication.start(
+        [sys.executable, "-c", parent_code],
+        max_log_bytes=4096,
+    )
+    child_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 5
+        while not child_pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert child_pid_file.is_file()
+        child_pid = int(child_pid_file.read_text(encoding="ascii"))
+
+        readiness = application.wait_for_readiness(
+            f"http://127.0.0.1:{port}",
+            timeout_ms=1000,
+        )
+        assert readiness.ready is False
+        assert application.state is ApplicationState.EXITED_BEFORE_READINESS
+        assert process_is_running(child_pid)
+
+        application.stop(grace_seconds=0.2)
+        deadline = time.monotonic() + 5
+        while process_is_running(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        if application.poll() is None:
+            application.stop(grace_seconds=0.1)
+        if child_pid is not None and process_is_running(child_pid):
+            os.kill(child_pid, 9)
+
+    assert child_pid is not None and not process_is_running(child_pid)
+    assert application.state is ApplicationState.EXITED_BEFORE_READINESS
