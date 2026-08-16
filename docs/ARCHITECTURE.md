@@ -4,10 +4,10 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M5 implements versioned plan rules, fixture-derived
-receipts, deterministic browser execution, bounded durable evidence, integrity verification, and
-the narrow conversion from browser outcomes to real verification results. Application lifecycle,
-CLI composition, and browser-backed proof receipts remain deferred to M6.
+M0 defined these boundaries and contracts. M6 composes versioned Plan v2 execution, a bounded local
+application lifecycle, deterministic browser verification, durable evidence authority, real
+verification results, and unchanged proof-receipt semantics into the minimum complete CLI flow.
+Source provenance, isolation, worktrees, and release hardening remain later milestones.
 
 ## System context and trust boundary
 
@@ -97,9 +97,35 @@ supplemental and cannot substitute for that baseline observation. Missing, unsaf
 evidence downgrades the outcome to `UNKNOWN`; evidence never upgrades an existing `UNKNOWN`. The
 bridge stops at results and does not render a receipt or manage an application process.
 
+### ManagedApplication
+
+`ManagedApplication` starts one explicit argv with `shell=False`, inheriting the current directory
+and environment. It immediately merges and continuously drains stdout/stderr while retaining a
+bounded prefix. TCP readiness against the validated loopback origin is deadline-bound and checks
+for early process exit. Shutdown requests termination, waits briefly, escalates to force-kill, and
+waits for the direct child. POSIX launches use a separate session and signal its process group;
+Windows guarantees the directly managed process only. This adapter never decides a verdict.
+
+### Local verification orchestration
+
+The M6 use case preflights a new or empty run directory before process startup. After readiness it
+uses the existing evidence-enabled `BrowserVerifier`, stops the application, stores bounded process
+output, verifies and writes the evidence manifest, reloads and verifies that durable manifest, and
+only then calls the M5 result bridge. Operational failures before browser execution produce ordered
+`UNKNOWN` results without fabricated browser observations. Application exit or interruption marks
+the run incomplete while preserving any real `FAIL` already established.
+
+Receipt construction remains pure and accepts either supported plan version through their shared
+task and criterion snapshots. M6 invokes it with executable Plan v2 results, real Python/platform
+metadata, and explicit limitations. `receipt.json` and `receipt.txt` are atomically created beside
+the manifest. Plan v1 golden receipt bytes and schema version 1 remain unchanged.
+
 ### CLI
 
-The only v0.1 user interface and the composition root. It parses arguments, loads configuration, invokes application use cases, reports progress and exit status, and renders concise errors. Business rules, browser code, and receipt aggregation do not live in command handlers.
+The only v0.1 user interface and the composition root. It accepts Plan v2, a loopback base URL, an
+empty run directory, a bounded startup timeout, and a final application argv. It maps the completed
+receipt to `0`/`1`/`3` for `PASS`/`FAIL`/`UNKNOWN`, and uses `2` for invalid invocation or input.
+Business rules, browser code, lifecycle state, and receipt aggregation do not live in handlers.
 
 ## Proposed module boundaries
 
@@ -107,12 +133,12 @@ Once implementation begins, start with a single Python package and only the modu
 
 ```text
 agentverify/
+  application.py     # bounded subprocess lifecycle, output drain, and TCP readiness
   domain.py          # core models and verdict rules
   browser_plan.py    # pure Plan v2 browser procedure models
   browser.py         # concrete Playwright execution and internal outcomes
   plan.py            # version dispatch, loading, validation, and snapshot digest
-  run.py             # verification orchestration use case
-  verifiers/         # deterministic verifier implementations
+  run.py             # evidence-authoritative local verification orchestration
   evidence.py        # artifact capture and manifest operations
   receipt.py         # receipt construction and rendering
   cli.py             # arguments, composition, user-facing exits
@@ -158,6 +184,9 @@ criterion, including browser infrastructure failure, unreachable navigation, or 
 before an assertion. Unexpected AgentVerify programming bugs still surface rather than being
 silently converted to `UNKNOWN`. Evidence capture failure is not an application `FAIL`; insufficient
 or invalid durable evidence prevents a conclusive outcome from crossing into the domain result.
+Startup failure, early exit, readiness timeout, interruption, and unreliable cleanup are operational
+uncertainty. They cannot create an application `FAIL`; an already established real `FAIL` remains
+authoritative under receipt aggregation even when the run later becomes incomplete.
 
 ## Largest technical risks
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from agentverify.browser_plan import BrowserVerificationPlan
 from agentverify.domain import AcceptanceCriterion, Verdict, VerificationPlan, VerificationResult
 from agentverify.receipt import (
     EnvironmentMetadata,
@@ -333,3 +334,47 @@ def test_repeated_rendering_is_byte_for_byte_stable() -> None:
     assert render_receipt_text(receipt) == render_receipt_text(receipt)
     assert render_receipt_json(receipt).endswith("\n")
     assert render_receipt_text(receipt).endswith("\n")
+
+
+def test_build_receipt_accepts_plan_v2_without_changing_receipt_schema() -> None:
+    plan = BrowserVerificationPlan.model_validate_json(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "task": "Verify greeting flow",
+                "criteria": [
+                    {
+                        "id": "AC-001",
+                        "description": "Greeting appears",
+                        "procedure": {
+                            "type": "browser",
+                            "steps": [
+                                {"type": "navigate", "path": "/"},
+                                {"type": "assert_visible", "selector": "#message"},
+                            ],
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    receipt = build_receipt(
+        plan=plan,
+        results=(
+            result(
+                "AC-001",
+                Verdict.PASS,
+                "The greeting was visible.",
+                "artifacts/000001-browser-observation.json",
+            ),
+        ),
+        completed=True,
+        environment=ENVIRONMENT,
+        limitations=LIMITATIONS,
+    )
+
+    assert receipt.schema_version == 1
+    assert receipt.task == plan.task
+    assert receipt.criteria[0].description == "Greeting appears"
+    assert receipt.plan_digest.startswith("sha256:")

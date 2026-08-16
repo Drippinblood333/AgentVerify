@@ -97,6 +97,11 @@ flow, or build browser-backed proof receipts.
 
 **Outcome:** Connect CLI, plan validation, application lifecycle, deterministic browser verification, evidence, and receipts into the minimum complete user flow.
 
+**Implemented boundary:** M6 provides one local Plan v2 CLI path with explicit argv process startup,
+bounded TCP readiness and output capture, deterministic Chromium execution, durable manifest
+authority, proof-receipt persistence, four exit codes, interruption handling, and bounded cleanup.
+It does not record Git provenance, claim isolation, or introduce later verifier abstractions.
+
 **Done when:**
 
 - One command verifies the maintained sample application from a clean checkout.
