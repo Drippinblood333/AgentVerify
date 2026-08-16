@@ -14,6 +14,8 @@ from enum import StrEnum
 from typing import BinaryIO
 from urllib.parse import urlsplit
 
+_WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
 
 class ApplicationError(Exception):
     """Base class for expected managed-application failures."""
@@ -131,7 +133,7 @@ class ManagedApplication:
         creation_flags = 0
         start_new_session = False
         if os.name == "nt":
-            creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+            creation_flags = _WINDOWS_NEW_PROCESS_GROUP
         else:
             start_new_session = True
 
