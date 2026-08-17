@@ -7,6 +7,7 @@ import platform as platform_module
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from agentverify import __version__
@@ -27,10 +28,18 @@ from agentverify.evidence import (
     EvidenceStore,
     redact_sensitive_text,
 )
+from agentverify.inspection import (
+    InspectionInputError,
+    RunIntegrityError,
+    inspect_run_directory,
+    sha256_file,
+)
+from agentverify.plan import PlanError, load_plan, plan_digest
+from agentverify.provenance import SourceProvenance, capture_source_provenance
 from agentverify.receipt import (
-    EnvironmentMetadata,
-    ProofReceipt,
-    build_receipt,
+    EnvironmentMetadataV2,
+    ProofReceiptV2,
+    build_receipt_v2,
     render_receipt_json,
     render_receipt_text,
 )
@@ -50,13 +59,14 @@ class RunOperationalError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class LocalVerificationOutcome:
-    """Completed M6 orchestration outputs and their authoritative receipt."""
+    """Completed local orchestration outputs and their authoritative receipt."""
 
-    receipt: ProofReceipt
+    receipt: ProofReceiptV2
     run_root: Path
     receipt_json_path: Path
     receipt_text_path: Path
     evidence_manifest_path: Path
+    plan_drift_warning: str | None
 
 
 _UNSUPPORTED_EVIDENCE_REASON = (
@@ -65,7 +75,6 @@ _UNSUPPORTED_EVIDENCE_REASON = (
 _BASE_LIMITATIONS = (
     "Local application execution is not sandboxed and uses the current user's permissions.",
     "Textual redaction is best-effort; rich browser artifacts may contain sensitive data.",
-    "Source revision and dirty-worktree provenance are not recorded.",
 )
 _PROCESS_LOG_TRUNCATION = "Process output was truncated to the configured evidence limit."
 _INTERRUPTED_REASON = "Verification was interrupted"
@@ -171,8 +180,9 @@ def verify_local_application(
     run_dir: Path,
     app_command: Sequence[str],
     startup_timeout_ms: int = 10_000,
+    plan_source_path: Path | None = None,
 ) -> LocalVerificationOutcome:
-    """Run the complete M6 local lifecycle, evidence, result, and receipt flow."""
+    """Run the complete local lifecycle, evidence, receipt, and integrity flow."""
     command = _validate_run_configuration(
         app_command=app_command,
         startup_timeout_ms=startup_timeout_ms,
@@ -184,9 +194,11 @@ def verify_local_application(
             "choose a different free port so AgentVerify can attribute readiness "
             "to the managed application"
         )
+    source_provenance = capture_source_provenance()
     run_root = _prepare_run_directory(run_dir)
     store = EvidenceStore(run_root)
     limitations = list(_BASE_LIMITATIONS)
+    _append_provenance_limitation(limitations, source_provenance)
     process: ManagedApplication | None = None
     executions: tuple[BrowserExecutionResult, ...] | None = None
     operational_reason: str | None = None
@@ -274,7 +286,8 @@ def verify_local_application(
         manifest_path = store.write_manifest(manifest)
         persisted_manifest = store.load_manifest()
         store.verify_manifest(persisted_manifest)
-    except EvidenceError as error:
+        manifest_digest = sha256_file(manifest_path)
+    except (EvidenceError, OSError) as error:
         raise RunOperationalError("durable evidence could not be finalized") from error
 
     if executions is None:
@@ -298,15 +311,18 @@ def verify_local_application(
         and not cleanup_failed
         and all(result.verdict is not Verdict.UNKNOWN for result in results)
     )
-    receipt = build_receipt(
+    receipt = build_receipt_v2(
         plan=plan,
         results=results,
         completed=completed,
-        environment=EnvironmentMetadata(
+        environment=EnvironmentMetadataV2(
             agentverify_version=__version__,
             python_version=platform_module.python_version(),
             platform=platform_module.platform(),
+            playwright_version=_playwright_version(),
         ),
+        source_provenance=source_provenance,
+        evidence_manifest_digest=manifest_digest,
         limitations=tuple(dict.fromkeys(limitations)),
     )
     receipt_json_path = run_root / "receipt.json"
@@ -317,13 +333,64 @@ def verify_local_application(
     except OSError as error:
         raise RunOperationalError("proof receipt could not be finalized") from error
 
+    try:
+        inspect_run_directory(run_root)
+    except (InspectionInputError, RunIntegrityError) as error:
+        raise RunIntegrityError(
+            f"new run failed final integrity self-check: {error}"
+        ) from error
+
+    plan_drift_warning = (
+        detect_plan_drift(plan_source_path, expected_digest=receipt.plan_digest)
+        if plan_source_path is not None
+        else None
+    )
+
     return LocalVerificationOutcome(
         receipt=receipt,
         run_root=run_root,
         receipt_json_path=receipt_json_path,
         receipt_text_path=receipt_text_path,
         evidence_manifest_path=manifest_path,
+        plan_drift_warning=plan_drift_warning,
     )
+
+
+def detect_plan_drift(plan_path: Path, *, expected_digest: str) -> str | None:
+    """Compare a current plan source to the frozen canonical snapshot."""
+    try:
+        current_plan = load_plan(plan_path)
+    except PlanError:
+        return (
+            "warning: current plan source no longer validates against the verified "
+            f"snapshot; receipt applies to {expected_digest}"
+        )
+    if plan_digest(current_plan) != expected_digest:
+        return (
+            "warning: plan file changed after verification snapshot; "
+            f"receipt applies to {expected_digest}"
+        )
+    return None
+
+
+def _append_provenance_limitation(
+    limitations: list[str],
+    provenance: SourceProvenance,
+) -> None:
+    if provenance.kind == "unavailable":
+        limitations.append(f"Source provenance unavailable: {provenance.reason}.")
+    elif provenance.dirty_worktree:
+        limitations.append(
+            "The Git worktree was dirty, so the recorded HEAD revision does not uniquely "
+            "identify the verified source bytes."
+        )
+
+
+def _playwright_version() -> str:
+    try:
+        return version("playwright")
+    except PackageNotFoundError:
+        return "unavailable"
 
 
 def _validate_run_configuration(

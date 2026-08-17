@@ -114,6 +114,12 @@ It does not record Git provenance, claim isolation, or introduce later verifier 
 
 **Outcome:** Make run provenance and acceptance-plan changes obvious without claiming a security guarantee.
 
+**Implemented boundary:** M7 preserves receipt v1 and manifest v1 while making the real verification
+path emit receipt v2 with Playwright version, read-only optional Git provenance, and a digest of the
+exact persisted manifest. It adds final self-inspection, read-only `inspect --run-dir`, canonical
+post-snapshot plan-drift warnings, and semantic repeat-run coverage. It does not add signatures,
+sandboxing, source mutation, worktree management, or requested-revision verification.
+
 **Done when:**
 
 - Receipts record plan digest, relevant tool versions, source revision, and dirty-worktree state when Git is available.

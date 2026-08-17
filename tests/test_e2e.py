@@ -1,4 +1,4 @@
-"""Real M6 CLI, process, Chromium, evidence, receipt, and cleanup tests."""
+"""Real CLI, process, Chromium, evidence, receipt, and cleanup tests."""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ from agentverify.application import endpoint_accepts_connection
 from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
 from agentverify.domain import Verdict
 from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.receipt import ProofReceipt
+from agentverify.inspection import RunIntegrityError, sha256_file
+from agentverify.plan import load_plan, plan_digest
+from agentverify.receipt import ProofReceiptV2, load_receipt
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
@@ -100,7 +102,7 @@ def assert_review_directory(
     *,
     expected_verdict: Verdict,
     completed: bool,
-) -> tuple[ProofReceipt, set[EvidenceKind]]:
+) -> tuple[ProofReceiptV2, set[EvidenceKind]]:
     receipt_json = run_dir / "receipt.json"
     receipt_text = run_dir / "receipt.txt"
     manifest_path = run_dir / "evidence-manifest.json"
@@ -108,7 +110,8 @@ def assert_review_directory(
     assert receipt_text.is_file()
     assert manifest_path.is_file()
 
-    receipt = ProofReceipt.model_validate_json(receipt_json.read_text(encoding="utf-8"))
+    receipt = load_receipt(receipt_json)
+    assert isinstance(receipt, ProofReceiptV2)
     assert receipt.overall_verdict is expected_verdict
     assert receipt.completed is completed
     assert f"Verdict: {expected_verdict.value}" in receipt_text.read_text(encoding="utf-8")
@@ -160,8 +163,221 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
         completed=True,
     )
     assert receipt.criteria[0].evidence_refs
+    assert receipt.schema_version == 2
+    assert receipt.plan_digest == plan_digest(load_plan(PASS_PLAN))
+    assert receipt.environment.agentverify_version
+    assert receipt.environment.python_version
+    assert receipt.environment.platform
+    assert receipt.environment.playwright_version
+    assert receipt.source_provenance.kind == "git"
+    assert receipt.source_provenance.revision is not None
+    assert len(receipt.source_provenance.revision) == 40
+    expected_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    assert receipt.source_provenance.revision == expected_head
+    assert isinstance(receipt.source_provenance.dirty_worktree, bool)
+    assert receipt.evidence_manifest_digest == sha256_file(
+        run_dir / "evidence-manifest.json"
+    )
     assert EvidenceKind.BROWSER_OBSERVATION in kinds
     assert EvidenceKind.PROCESS_LOG in kinds
+
+
+def test_real_run_manifest_tampering_is_reported_by_cli_inspect(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    port = unused_tcp_port()
+    run_dir = tmp_path / "manifest-tamper-run"
+    pid_file = tmp_path / "manifest-tamper.pid"
+
+    assert (
+        main(cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file))
+        == EXIT_PASS
+    )
+    capsys.readouterr()
+    manifest_path = run_dir / "evidence-manifest.json"
+    manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "integrity warning" in captured.err
+    assert "does not match" in captured.err
+
+
+def test_real_run_artifact_tampering_is_reported_by_cli_inspect(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    port = unused_tcp_port()
+    run_dir = tmp_path / "artifact-tamper-run"
+    pid_file = tmp_path / "artifact-tamper.pid"
+
+    assert (
+        main(cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file))
+        == EXIT_PASS
+    )
+    capsys.readouterr()
+    manifest = EvidenceStore(run_dir).load_manifest()
+    observation = next(
+        artifact
+        for artifact in manifest.artifacts
+        if artifact.kind is EvidenceKind.BROWSER_OBSERVATION
+    )
+    artifact_path = run_dir / observation.relative_path
+    artifact_path.write_bytes(b"tampered browser observation")
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "integrity warning" in captured.err
+    assert "mismatch" in captured.err
+
+
+def test_repeat_runs_preserve_stable_semantics_and_browser_observation_bytes(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    run_dirs: list[Path] = []
+    receipts: list[ProofReceiptV2] = []
+    observations: list[bytes] = []
+    for run_number in (1, 2):
+        port = unused_tcp_port()
+        run_dir = tmp_path / f"repeat-{run_number}"
+        pid_file = tmp_path / f"repeat-{run_number}.pid"
+        assert (
+            main(cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file))
+            == EXIT_PASS
+        )
+        capsys.readouterr()
+        loaded = load_receipt(run_dir / "receipt.json")
+        assert isinstance(loaded, ProofReceiptV2)
+        manifest = EvidenceStore(run_dir).load_manifest()
+        observation = next(
+            artifact
+            for artifact in manifest.artifacts
+            if artifact.kind is EvidenceKind.BROWSER_OBSERVATION
+        )
+        run_dirs.append(run_dir)
+        receipts.append(loaded)
+        observations.append((run_dir / observation.relative_path).read_bytes())
+
+    first, second = receipts
+    assert first.plan_digest == second.plan_digest
+    assert first.criteria == second.criteria
+    assert first.overall_verdict is second.overall_verdict is Verdict.PASS
+    assert first.completed is second.completed is True
+    assert first.source_provenance == second.source_provenance
+    assert first.environment == second.environment
+    assert observations[0] == observations[1]
+    assert run_dirs[0] != run_dirs[1]
+
+
+def test_plan_change_after_cli_snapshot_warns_but_preserves_frozen_pass(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    mutable_plan = tmp_path / "mutable.plan.json"
+    mutable_plan.write_bytes(PASS_PLAN.read_bytes())
+    frozen_digest = plan_digest(load_plan(mutable_plan))
+    changed_payload = json.loads(PASS_PLAN.read_text(encoding="utf-8"))
+    changed_payload["criteria"][0]["description"] = "Changed after snapshot"
+    replacement = json.dumps(changed_payload)
+    mutation_code = (
+        "from pathlib import Path; "
+        f"Path({str(mutable_plan)!r}).write_text({replacement!r}, encoding='utf-8'); "
+        f"exec(compile(Path({str(SAMPLE_APP)!r}).read_bytes(), "
+        f"{str(SAMPLE_APP)!r}, 'exec'))"
+    )
+    port = unused_tcp_port()
+    run_dir = tmp_path / "plan-drift-run"
+    pid_file = tmp_path / "plan-drift.pid"
+    exit_code = main(
+        [
+            "verify",
+            "--plan",
+            str(mutable_plan),
+            "--base-url",
+            f"http://127.0.0.1:{port}",
+            "--run-dir",
+            str(run_dir),
+            "--app-command",
+            sys.executable,
+            "-c",
+            mutation_code,
+            "--port",
+            str(port),
+            "--pid-file",
+            str(pid_file),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    receipt = load_receipt(run_dir / "receipt.json")
+    assert isinstance(receipt, ProofReceiptV2)
+    assert exit_code == EXIT_PASS
+    assert "Verdict: PASS" in captured.out
+    assert "plan file changed after verification snapshot" in captured.err
+    assert frozen_digest in captured.err
+    assert receipt.plan_digest == frozen_digest
+
+
+def test_real_verification_outside_git_remains_pass_with_unavailable_provenance(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outside_git = tmp_path / "outside-git"
+    outside_git.mkdir()
+    monkeypatch.chdir(outside_git)
+    port = unused_tcp_port()
+    run_dir = tmp_path / "outside-git-run"
+    pid_file = tmp_path / "outside-git.pid"
+
+    exit_code = main(
+        cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file)
+    )
+
+    captured = capsys.readouterr()
+    receipt = load_receipt(run_dir / "receipt.json")
+    assert isinstance(receipt, ProofReceiptV2)
+    assert exit_code == EXIT_PASS
+    assert "Verdict: PASS" in captured.out
+    assert receipt.source_provenance.kind == "unavailable"
+    assert receipt.source_provenance.revision is None
+    assert any("Source provenance unavailable" in item for item in receipt.limitations)
+
+
+def test_final_self_check_failure_never_reports_successful_pass(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_self_check(run_dir: Path) -> None:
+        raise RunIntegrityError(f"forced self-check mismatch in {run_dir.name}")
+
+    monkeypatch.setattr("agentverify.run.inspect_run_directory", fail_self_check)
+    port = unused_tcp_port()
+    run_dir = tmp_path / "self-check-run"
+    pid_file = tmp_path / "self-check.pid"
+
+    exit_code = main(
+        cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file)
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert captured.out == ""
+    assert "integrity warning" in captured.err
+    assert "final integrity self-check" in captured.err
+    assert (run_dir / "receipt.json").is_file()
 
 
 def test_end_to_end_real_assertion_fail_is_authoritative_and_cleans_process(
