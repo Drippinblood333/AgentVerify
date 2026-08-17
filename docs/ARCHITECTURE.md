@@ -4,10 +4,11 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M6 composes versioned Plan v2 execution, a bounded local
+M0 defined these boundaries and contracts. M7 composes versioned Plan v2 execution, a bounded local
 application lifecycle, deterministic browser verification, durable evidence authority, real
-verification results, and unchanged proof-receipt semantics into the minimum complete CLI flow.
-Source provenance, isolation, worktrees, and release hardening remain later milestones.
+verification results, versioned proof receipts, read-only source provenance, and post-run integrity
+inspection into the minimum complete CLI flow. Isolation, worktrees, and release hardening remain
+later milestones.
 
 ## System context and trust boundary
 
@@ -19,8 +20,9 @@ Local execution is not strong isolation. Before the isolated-environment milesto
 
 These are the product's conceptual schemas. Plan v1 retains the criteria-only M2 contract. Plan v2
 adds immutable `BrowserAcceptanceCriterion` and `BrowserProcedure` models. M3's evidence-requiring
-`VerificationResult` and proof receipt remain unchanged. M5 adds immutable `EvidenceArtifact` and
-`EvidenceManifest` models without adding evidence policy to either plan version.
+`VerificationResult` and receipt-v1 contract remain unchanged. M5 adds immutable
+`EvidenceArtifact` and `EvidenceManifest` models without adding evidence policy to either plan
+version. M7 adds receipt v2 around the same verdict semantics.
 
 ### Task
 
@@ -49,7 +51,10 @@ indicator rather than cryptographic attestation.
 
 ### ProofReceipt
 
-The reviewable output for a completed run. It includes task and criteria snapshots or digests, worktree/run identity, per-criterion results, aggregate verdict, evidence manifest, tool versions, and explicit limitations. It is available in a stable machine-readable form plus a human-readable rendering.
+The reviewable output for a completed run. Receipt v1 remains byte-compatible with M3. Receipt v2
+adds the Playwright package version, structured source provenance, and the SHA-256 digest of the
+exact persisted manifest bytes. Both versions retain the same criteria, completion, and aggregate
+verdict semantics and have stable machine-readable and human-readable renderings.
 
 The deterministic aggregate rule is:
 
@@ -122,9 +127,26 @@ Application exit or interruption marks the run incomplete while preserving any r
 established.
 
 Receipt construction remains pure and accepts either supported plan version through their shared
-task and criterion snapshots. M6 invokes it with executable Plan v2 results, real Python/platform
-metadata, and explicit limitations. `receipt.json` and `receipt.txt` are atomically created beside
-the manifest. Plan v1 golden receipt bytes and schema version 1 remain unchanged.
+task and criterion snapshots. The real CLI path emits receipt v2 after hashing the exact persisted
+manifest bytes, then atomically creates `receipt.json` and `receipt.txt` and performs the same
+read-only integrity inspection exposed by the CLI. Plan v1 golden receipt bytes and schema version 1
+remain unchanged. A final canonical reload of the original plan source warns about post-snapshot
+semantic drift without changing the frozen receipt or verdict.
+
+### Source provenance and run inspection
+
+The Git adapter uses bounded stdlib subprocess calls with explicit argv and `shell=False`. It reads
+HEAD and porcelain worktree status from the current directory but never stores an absolute
+repository path, diff, or status body. Git absence and non-repository directories are explicit
+unavailable metadata and do not alter the verdict. A dirty worktree means HEAD alone does not
+identify the verified filesystem bytes. The adapter does not create or switch worktrees and does
+not verify a requested revision.
+
+Run inspection is read-only. It loads receipt v2, compares its manifest digest to the current exact
+manifest bytes, applies existing artifact path/size/SHA-256 checks, and validates receipt evidence
+references and criterion associations. It does not rerun Chromium, replay criteria, repair files, or
+rewrite a historical verdict. These unkeyed digests are integrity indicators, not authentication:
+an attacker controlling the entire bundle can recompute them consistently.
 
 ### CLI
 
@@ -132,6 +154,8 @@ The only v0.1 user interface and the composition root. It accepts Plan v2, a loo
 empty run directory, a bounded startup timeout, and a final application argv. It maps the completed
 receipt to `0`/`1`/`3` for `PASS`/`FAIL`/`UNKNOWN`, and uses `2` for invalid invocation or input.
 Business rules, browser code, lifecycle state, and receipt aggregation do not live in handlers.
+`inspect --run-dir` returns `0` for an intact v2 bundle, `2` for invalid input or an unsupported
+receipt, and `3` for an integrity warning.
 
 ## Proposed module boundaries
 
@@ -146,7 +170,9 @@ agentverify/
   plan.py            # version dispatch, loading, validation, and snapshot digest
   run.py             # evidence-authoritative local verification orchestration
   evidence.py        # artifact capture and manifest operations
-  receipt.py         # receipt construction and rendering
+  provenance.py      # bounded read-only Git source metadata
+  inspection.py      # read-only receipt/manifest/artifact integrity checks
+  receipt.py         # versioned receipt construction, rendering, and loading
   cli.py             # arguments, composition, user-facing exits
 ```
 
@@ -174,6 +200,11 @@ Use direct function calls and local files in v0.1. There is no need for services
 ## Deterministic versus LLM-assisted behavior
 
 The v0.1 deterministic path includes schema validation, plan hashing, application readiness checks, declared browser/command procedures, explicit assertions, evidence capture, result aggregation, receipt rendering, and exit codes. Given equivalent application state and environment, these operations should be replayable and explain discrepancies.
+
+Equivalent maintained runs compare stable semantics rather than claiming byte-identical run roots.
+Evidence capture timestamps, selected ports in process logs, their derived artifact hashes, and the
+resulting manifest digest may differ while criterion outcomes and browser-observation content remain
+stable.
 
 LLMs may later help propose acceptance criteria, translate natural language into a draft plan, or explore an interface for candidate failures. Their output must remain reviewable input: it cannot rewrite frozen criteria, suppress evidence, or directly turn uncertainty into a passing verdict. Provider adapters, if added, stay outside the core and use a provider-neutral request/response boundary. AgentVerify must remain fully useful without any LLM API.
 
