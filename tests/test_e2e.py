@@ -481,6 +481,13 @@ def test_readiness_timeout_is_unknown_reviewable_and_cleans_process(
     assert EvidenceKind.BROWSER_OBSERVATION not in kinds
     assert EvidenceKind.PROCESS_LOG in kinds
 
+    inspect_exit = main(["inspect", "--run-dir", str(run_dir)])
+    inspect_output = capsys.readouterr()
+    assert inspect_exit == EXIT_PASS
+    assert "Verdict: UNKNOWN" in inspect_output.out
+    assert "Integrity: OK" in inspect_output.out
+    assert inspect_output.err == ""
+
 
 def test_application_exit_before_readiness_is_unknown_with_process_log(
     tmp_path: Path,

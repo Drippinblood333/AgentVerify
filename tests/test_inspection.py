@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from agentverify.cli import EXIT_SUCCESS, EXIT_UNKNOWN, EXIT_USAGE, main
@@ -22,17 +23,59 @@ from agentverify.receipt import (
 
 
 def make_run(run_dir: Path) -> Path:
-    store = EvidenceStore(run_dir)
-    artifact = store.record_json(
-        kind=EvidenceKind.BROWSER_OBSERVATION,
-        payload={"criterion_id": "AC-001", "reason": "visible", "verdict": "PASS"},
-        producer="test",
-        criterion_id="AC-001",
+    return make_authority_run(
+        run_dir,
+        verdict=Verdict.PASS,
+        referenced_kind=EvidenceKind.BROWSER_OBSERVATION,
+        referenced_criterion_id="AC-001",
     )
+
+
+def make_authority_run(
+    run_dir: Path,
+    *,
+    verdict: Verdict,
+    referenced_kind: EvidenceKind,
+    referenced_criterion_id: str | None,
+    include_unreferenced_observation: bool = False,
+) -> Path:
+    store = EvidenceStore(run_dir)
+    if include_unreferenced_observation:
+        store.record_json(
+            kind=EvidenceKind.BROWSER_OBSERVATION,
+            payload={"criterion_id": "AC-001", "reason": "visible", "verdict": "PASS"},
+            producer="test",
+            criterion_id="AC-001",
+        )
+    if referenced_kind is EvidenceKind.PROCESS_LOG:
+        referenced = store.record_process_log(
+            "application diagnostic",
+            producer="test",
+            criterion_id=referenced_criterion_id,
+        )
+    elif referenced_kind is EvidenceKind.SCREENSHOT:
+        referenced = store.record_bytes(
+            kind=EvidenceKind.SCREENSHOT,
+            data=b"png",
+            media_type="image/png",
+            producer="test",
+            criterion_id=referenced_criterion_id,
+        )
+    else:
+        referenced = store.record_json(
+            kind=EvidenceKind.BROWSER_OBSERVATION,
+            payload={
+                "criterion_id": "AC-001",
+                "reason": "browser outcome",
+                "verdict": verdict.value,
+            },
+            producer="test",
+            criterion_id=referenced_criterion_id,
+        )
     manifest_path = store.write_manifest()
     plan = VerificationPlan(
         schema_version=1,
-        task="Inspect run",
+        task="Inspect evidence authority",
         criteria=(AcceptanceCriterion(id="AC-001", description="Greeting appears"),),
     )
     receipt = build_receipt_v2(
@@ -40,12 +83,12 @@ def make_run(run_dir: Path) -> Path:
         results=(
             VerificationResult(
                 criterion_id="AC-001",
-                verdict=Verdict.PASS,
-                reason="visible",
-                evidence_refs=(artifact.relative_path,),
+                verdict=verdict,
+                reason="fixture outcome",
+                evidence_refs=(referenced.relative_path,),
             ),
         ),
-        completed=True,
+        completed=verdict is not Verdict.UNKNOWN,
         environment=EnvironmentMetadataV2(
             agentverify_version="0.1.0.dev0",
             python_version="3.14.3",
@@ -86,6 +129,94 @@ def test_cli_inspect_reports_valid_run(tmp_path: Path, capsys: CaptureFixture[st
     assert "Integrity: OK" in captured.out
     assert "Receipt schema: 2" in captured.out
     assert "Manifest: sha256:" in captured.out
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])
+def test_conclusive_receipt_cannot_use_global_process_log(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    verdict: Verdict,
+) -> None:
+    run_dir = make_authority_run(
+        tmp_path / "run",
+        verdict=verdict,
+        referenced_kind=EvidenceKind.PROCESS_LOG,
+        referenced_criterion_id=None,
+        include_unreferenced_observation=True,
+    )
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "integrity warning" in captured.err
+    assert "not assigned to its criterion" in captured.err
+    assert "Integrity: OK" not in captured.out
+
+
+@pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])
+def test_conclusive_receipt_requires_referenced_browser_observation(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    verdict: Verdict,
+) -> None:
+    run_dir = make_authority_run(
+        tmp_path / "run",
+        verdict=verdict,
+        referenced_kind=EvidenceKind.SCREENSHOT,
+        referenced_criterion_id="AC-001",
+        include_unreferenced_observation=True,
+    )
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "integrity warning" in captured.err
+    assert "lacks a referenced browser observation" in captured.err
+    assert "Integrity: OK" not in captured.out
+
+
+@pytest.mark.parametrize("verdict", [Verdict.PASS, Verdict.FAIL])
+def test_conclusive_receipt_with_referenced_browser_observation_is_valid(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    verdict: Verdict,
+) -> None:
+    run_dir = make_authority_run(
+        tmp_path / "run",
+        verdict=verdict,
+        referenced_kind=EvidenceKind.BROWSER_OBSERVATION,
+        referenced_criterion_id="AC-001",
+    )
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_SUCCESS
+    assert f"Verdict: {verdict.value}" in captured.out
+    assert "Integrity: OK" in captured.out
+    assert captured.err == ""
+
+
+def test_unknown_receipt_may_reference_global_process_log(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    run_dir = make_authority_run(
+        tmp_path / "run",
+        verdict=Verdict.UNKNOWN,
+        referenced_kind=EvidenceKind.PROCESS_LOG,
+        referenced_criterion_id=None,
+    )
+
+    exit_code = main(["inspect", "--run-dir", str(run_dir)])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_SUCCESS
+    assert "Verdict: UNKNOWN" in captured.out
+    assert "Integrity: OK" in captured.out
     assert captured.err == ""
 
 

@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentverify.evidence import EVIDENCE_MANIFEST_FILENAME, EvidenceError, EvidenceStore
-from agentverify.receipt import ProofReceiptV2, ReceiptLoadError, load_receipt
+from agentverify.domain import Verdict
+from agentverify.evidence import (
+    EVIDENCE_MANIFEST_FILENAME,
+    EvidenceArtifact,
+    EvidenceError,
+    EvidenceKind,
+    EvidenceStore,
+)
+from agentverify.receipt import (
+    ProofReceiptV2,
+    ReceiptCriterionResult,
+    ReceiptLoadError,
+    load_receipt,
+)
 
 RECEIPT_JSON_FILENAME = "receipt.json"
 
@@ -84,18 +97,43 @@ def inspect_run_directory(run_dir: Path) -> RunInspection:
                 f"{artifact.relative_path}"
             )
     for criterion in receipt.criteria:
-        for evidence_ref in criterion.evidence_refs:
-            referenced_artifact = artifacts_by_path.get(evidence_ref)
-            if referenced_artifact is None:
+        _validate_criterion_evidence_authority(criterion, artifacts_by_path)
+    return RunInspection(run_root=run_root, receipt=receipt)
+
+
+def _validate_criterion_evidence_authority(
+    criterion: ReceiptCriterionResult,
+    artifacts_by_path: Mapping[str, EvidenceArtifact],
+) -> None:
+    conclusive = criterion.verdict in {Verdict.PASS, Verdict.FAIL}
+    has_referenced_browser_observation = False
+    for evidence_ref in criterion.evidence_refs:
+        artifact = artifacts_by_path.get(evidence_ref)
+        if artifact is None:
+            raise RunIntegrityError(
+                f"receipt evidence reference is absent from manifest: {evidence_ref}"
+            )
+        allowed_criterion_ids = (
+            {criterion.criterion_id} if conclusive else {None, criterion.criterion_id}
+        )
+        if artifact.criterion_id not in allowed_criterion_ids:
+            if conclusive:
                 raise RunIntegrityError(
-                    f"receipt evidence reference is absent from manifest: {evidence_ref}"
-                )
-            if referenced_artifact.criterion_id not in {None, criterion.criterion_id}:
-                raise RunIntegrityError(
-                    "receipt evidence reference belongs to a different criterion: "
+                    "conclusive receipt evidence reference is not assigned to its criterion: "
                     f"{evidence_ref}"
                 )
-    return RunInspection(run_root=run_root, receipt=receipt)
+            raise RunIntegrityError(
+                "receipt evidence reference belongs to a different criterion: "
+                f"{evidence_ref}"
+            )
+        if artifact.kind is EvidenceKind.BROWSER_OBSERVATION:
+            has_referenced_browser_observation = True
+
+    if conclusive and not has_referenced_browser_observation:
+        raise RunIntegrityError(
+            "conclusive receipt criterion lacks a referenced browser observation: "
+            f"{criterion.criterion_id}"
+        )
 
 
 def _resolve_run_root(run_dir: Path) -> Path:
