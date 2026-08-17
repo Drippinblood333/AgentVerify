@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agentverify.domain import (
     NonBlankText,
     Verdict,
-    VerificationPlan,
     VerificationResult,
     aggregate_verdict,
 )
-from agentverify.plan import plan_digest
+from agentverify.plan import SupportedVerificationPlan, plan_digest
 
 
 class ReceiptValidationError(ValueError):
     """Supplied fixture results cannot form an auditable proof receipt."""
+
+
+class _ReceiptPlanCriterion(Protocol):
+    id: str
+    description: str
 
 
 class EnvironmentMetadata(BaseModel):
@@ -111,7 +115,7 @@ def aggregate_receipt_verdict(
 
 
 def _index_results(
-    plan: VerificationPlan,
+    plan: SupportedVerificationPlan,
     results: Sequence[VerificationResult],
 ) -> dict[str, VerificationResult]:
     """Validate fixture result identity and completeness against a frozen plan."""
@@ -141,15 +145,16 @@ def _index_results(
 
 def build_receipt(
     *,
-    plan: VerificationPlan,
+    plan: SupportedVerificationPlan,
     results: Sequence[VerificationResult],
     completed: bool,
     environment: EnvironmentMetadata,
     limitations: Sequence[str],
 ) -> ProofReceipt:
     """Build a receipt without reading, executing, probing, or writing anything."""
+    plan_criteria = cast(Sequence[_ReceiptPlanCriterion], plan.criteria)
     indexed_results = _index_results(plan, results)
-    ordered_results = tuple(indexed_results[criterion.id] for criterion in plan.criteria)
+    ordered_results = tuple(indexed_results[criterion.id] for criterion in plan_criteria)
     criteria = tuple(
         ReceiptCriterionResult(
             criterion_id=criterion.id,
@@ -158,7 +163,7 @@ def build_receipt(
             reason=result.reason,
             evidence_refs=result.evidence_refs,
         )
-        for criterion, result in zip(plan.criteria, ordered_results, strict=True)
+        for criterion, result in zip(plan_criteria, ordered_results, strict=True)
     )
     return ProofReceipt(
         task=plan.task,

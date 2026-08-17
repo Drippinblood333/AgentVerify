@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify validates Verification Plan v1 and v2 files, constructs deterministic proof receipts from supplied fixture results, and can execute explicit browser procedures with durable, integrity-checked evidence against an already-running local web application through its Python library. Complete CLI verification is not implemented yet.
+> **Status: early development.** AgentVerify can now run one complete local verification flow: it starts a local web application, waits for readiness, executes a reviewed Plan v2 in Chromium, persists integrity-checked evidence and proof receipts, reports a deterministic exit code, and cleans up the managed process.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -30,14 +30,14 @@ Currently implemented:
 - headless Chromium execution of strict `navigate`, `fill`, `click`, and
   `assert_visible` procedures against a loopback HTTP(S) application; and
 - bounded local evidence artifacts, a portable manifest, integrity verification, and an
-  evidence-gated conversion from browser outcomes to `VerificationResult` objects.
+  evidence-gated conversion from browser outcomes to `VerificationResult` objects; and
+- a complete Plan v2 CLI flow with bounded application lifecycle, TCP readiness, real environment
+  metadata, JSON/text receipts, deterministic exit codes, and direct-child cleanup.
 
-Browser execution is currently a library-level capability. It assumes the application is already
-running and gives every criterion a fresh browser context. The explicit evidence-enabled path stores
-artifacts beneath a caller-supplied run root using portable relative paths. It can convert browser
-outcomes into real `VerificationResult` objects only after referenced artifacts pass path, size, and
-SHA-256 checks. Browser results remain separate from proof receipts until M6; fixture receipts are
-not evidence that an application was run. AgentVerify still does not start or manage applications.
+The CLI executes the supplied application argv locally, without a shell, and gives every criterion a
+fresh browser context. Artifacts live beneath a caller-supplied run directory using portable
+relative paths. A browser outcome becomes conclusive only after its referenced evidence, including
+the baseline browser observation, passes path, size, and SHA-256 checks.
 
 Install the package and development tools from a local checkout, then install
 Playwright-managed Chromium for browser verification:
@@ -47,24 +47,32 @@ python -m pip install -e ".[dev]"
 python -m playwright install chromium
 ```
 
-Current CLI behavior:
+## Clean-checkout demo
+
+From PowerShell, after installation, run the maintained Plan v2 and standard-library sample app:
 
 ```console
-$ agentverify --version
-AgentVerify 0.1.0.dev0
-
-$ agentverify verify --plan examples/password-reset.plan.json
-Verification plan is valid.
-
-Task: Implement password reset
-Criteria: 2
-Schema version: 1
-Plan digest: sha256:...
-
-Verification execution is not implemented yet.
+agentverify verify `
+  --plan examples/greeting.plan.json `
+  --base-url http://127.0.0.1:8765 `
+  --run-dir .agentverify/demo-run `
+  --app-command python examples/greeting_app.py
 ```
 
-The exit-code policy remains intentionally small: `0` means the command completed successfully, while `2` means invalid command usage or input. Verification verdict exit codes do not exist yet.
+For POSIX shells, replace the PowerShell backticks with `\`. `--app-command` consumes the remaining
+argv and must be the final AgentVerify option. A custom port therefore looks like:
+
+```console
+agentverify verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:9000 --run-dir .agentverify/demo-run-9000 --app-command python examples/greeting_app.py --port 9000
+```
+
+The successful demo prints paths to `receipt.txt`, `receipt.json`, and
+`evidence-manifest.json`, then exits after terminating the sample application. The run directory
+must be nonexistent or empty; AgentVerify never overwrites a prior run.
+
+Exit codes are stable: `0` is `PASS`, `1` is verification `FAIL`, `2` is invalid invocation/input,
+and `3` is `UNKNOWN` or incomplete verification. The readiness timeout defaults to 10,000 ms and
+can be set from 100 to 60,000 ms with `--startup-timeout-ms`.
 
 ## Verification Plan versions
 
@@ -89,6 +97,8 @@ digest are unchanged:
 ```
 
 See [`examples/password-reset.plan.json`](examples/password-reset.plan.json) for a valid plan. The displayed SHA-256 digest fingerprints the validated plan's canonical content; it helps detect changes but is not a security or authenticity guarantee.
+Plan v1 remains loadable and digest-compatible, but executable local verification requires Plan v2
+because v1 contains no frozen procedure.
 
 Plan v2 adds one strict browser procedure per criterion:
 
@@ -119,10 +129,17 @@ See [`examples/greeting.plan.json`](examples/greeting.plan.json). Procedures mus
 `navigate`, contain an `assert_visible`, and use a timeout from 100 to 30,000 milliseconds. Unknown
 procedure or step syntax is invalid input. Navigation paths cannot leave the supplied local origin.
 
-The library accepts only loopback `http` or `https` base URLs, launches Playwright-managed Chromium
-headlessly with a fixed 1280×720 viewport, and creates a fresh `BrowserContext` for every criterion.
-This is browser-state isolation only, not a sandbox: the already-running application has normal user
-permissions, and a loaded page may still make third-party network requests.
+The CLI and library accept only loopback `http` or `https` base URLs, launch Playwright-managed
+Chromium headlessly with a fixed 1280×720 viewport, and create a fresh `BrowserContext` for every
+criterion. TCP readiness only establishes that the configured endpoint accepts connections. This
+is browser-state isolation, not a sandbox: the application command executes with the current user's
+working directory, environment, and permissions, and a loaded page may make third-party requests.
+
+Before starting the managed command, the CLI requires the configured endpoint to be closed. It then
+waits for the endpoint to begin accepting connections after startup. An already-listening endpoint
+is rejected with exit code `2` so an obvious stale or unrelated service cannot be attributed to the
+managed command. This closed-to-accepting check is an attribution guard, not cryptographic process
+identity or proof of port ownership.
 
 ## Evidence capture
 
@@ -145,23 +162,34 @@ Artifacts and `evidence-manifest.json` are retained under the caller-supplied ru
 deletion are currently the caller's responsibility. Manifest SHA-256 values detect byte changes but
 are integrity indicators, not signatures, authentication, or cryptographic attestation.
 
-## Intended workflow
+## Run directory
 
-The future CLI is expected to support a workflow like this (the interface is illustrative, not yet available):
+Each completed or reviewable incomplete run is self-contained:
 
-```console
-$ agentverify verify --plan acceptance.json --app-command "python -m myapp"
-
-AGENTVERIFY PROOF RECEIPT
-Task: Implement password reset
-Verdict: FAIL
-
-PASS  Reset email can be requested
-PASS  Invalid token is rejected
-FAIL  Reset token cannot be reused
-
-Evidence saved to .agentverify/runs/...
+```text
+<run-dir>/
+  evidence-manifest.json
+  receipt.json
+  receipt.txt
+  artifacts/
+    ...
 ```
+
+Application stdout and stderr are continuously drained into one bounded, best-effort-redacted
+process-log artifact. The retained log is explicitly marked when truncated. Screenshots and traces
+remain opt-in library captures and may contain sensitive application data. Run retention and
+deletion remain the user's responsibility.
+
+## Troubleshooting
+
+- **Chromium is missing:** run `python -m playwright install chromium`.
+- **Port already in use or already accepting connections:** choose another free port and pass the
+  same value in `--base-url` and after the final `--app-command ... --port` argument. AgentVerify
+  refuses to start the command when it cannot safely attribute an already-listening endpoint.
+- **Application never becomes ready:** check the configured host/port and inspect the process-log
+  artifact; increase `--startup-timeout-ms` only when startup legitimately needs more time.
+- **Run directory already contains files:** choose a new directory or explicitly empty the intended
+  directory before starting. AgentVerify will not overwrite it.
 
 The first release is deliberately limited to **locally runnable web applications** and a CLI-first experience. It will not be a hosted platform, coding-agent orchestrator, team dashboard, or general-purpose mobile and desktop testing system.
 
