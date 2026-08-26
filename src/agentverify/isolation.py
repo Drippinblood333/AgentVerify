@@ -469,7 +469,6 @@ class DockerManagedApplication:
     ) -> ReadinessResult:
         """Wait for the exact container target and establish loopback-only delivery."""
         deadline = time.monotonic() + timeout_ms / 1000
-        target: tuple[str, int] | None = None
         while True:
             if self._process.poll() is not None:
                 self.state = ApplicationState.EXITED_BEFORE_READINESS
@@ -478,6 +477,7 @@ class DockerManagedApplication:
             if remaining <= 0:
                 return ReadinessResult(False, "Docker application readiness timed out")
 
+            target: tuple[str, int] | None = None
             networking = _inspect_container_networking(
                 self._preflight.docker_executable,
                 self.container_name,
@@ -509,15 +509,10 @@ class DockerManagedApplication:
                             target=target,
                         )
                     except OSError:
-                        if not endpoint_accepts_connection(
-                            base_url,
-                            timeout_seconds=min(0.2, remaining),
-                        ):
-                            return ReadinessResult(
-                                False,
-                                "Docker loopback port delivery could not start",
-                            )
-                        self.port_delivery = "docker"
+                        time.sleep(
+                            min(poll_interval_seconds, max(remaining, 0))
+                        )
+                        continue
                     else:
                         self.port_delivery = "agentverify-loopback-relay"
                 if self._process.poll() is not None:
@@ -651,7 +646,8 @@ def _docker_run_argv(
     network_name: str,
 ) -> tuple[str, ...]:
     source_mount = (
-        f"type=bind,source={preflight.source_root},target=/workspace,readonly"
+        f"type=bind,source={preflight.source_root},target=/workspace,readonly,"
+        "bind-recursive=disabled"
     )
     return (
         preflight.docker_executable,
@@ -774,6 +770,8 @@ def _inspect_container_networking(
     try:
         payload = json.loads(result.stdout)
         metadata = payload[0]
+        if metadata["Name"] not in {container_name, f"/{container_name}"}:
+            return None
         network_settings = metadata["NetworkSettings"]
         attached_network = network_settings["Networks"][network_name]
         container_ip = attached_network["IPAddress"]

@@ -350,6 +350,7 @@ checks = {
     "source_write": write_succeeds("/workspace/.agentverify-m8-source-write-marker"),
     "root_write": write_succeeds("/agentverify-m8-root-write-marker"),
     "tmp_write": write_succeeds("/tmp/agentverify-m8-tmp-write-marker"),
+    "shm_write": write_succeeds("/dev/shm/agentverify-m8-shm-write-marker"),
     "outside_canary_visible": os.path.exists(sys.argv[2]),
     "run_dir_visible": os.path.exists(sys.argv[3]),
     "host_secret_present": "AGENTVERIFY_M8_HOST_SECRET" in os.environ,
@@ -473,11 +474,118 @@ while True:
         "outside_canary_visible": False,
         "root_write": False,
         "run_dir_visible": False,
+        "shm_write": True,
         "source_write": False,
         "tmp_write": True,
     }
     assert not source_marker.exists()
     assert not endpoint_accepts_connection(f"http://127.0.0.1:{port}")
+    assert managed_resources(docker_executable) == before
+
+
+def test_nested_host_submount_is_not_propagated_into_workspace(
+    tmp_path: Path,
+    docker_executable: str,
+) -> None:
+    if os.name == "nt":
+        pytest.skip("nested host mount regression requires Linux")
+    sudo = shutil.which("sudo")
+    mount = shutil.which("mount")
+    umount = shutil.which("umount")
+    if sudo is None or mount is None or umount is None:
+        pytest.fail("real Docker CI requires sudo, mount, and umount for submount proof")
+
+    before = managed_resources(docker_executable)
+    source_root = tmp_path / "nested-source"
+    nested_mount = source_root / "nested"
+    nested_mount.mkdir(parents=True)
+    run_dir = tmp_path / "nested-run"
+    port = unused_tcp_port()
+    mounted = False
+    application: DockerManagedApplication | None = None
+    try:
+        mount_result = subprocess.run(
+            (
+                sudo,
+                "-n",
+                mount,
+                "-t",
+                "tmpfs",
+                "-o",
+                "size=1m",
+                "agentverify-m8-submount",
+                str(nested_mount),
+            ),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            check=False,
+            timeout=10,
+        )
+        assert mount_result.returncode == 0, mount_result.stderr
+        mounted = True
+        (nested_mount / "host-submount-canary").write_text(
+            "must not propagate", encoding="utf-8"
+        )
+        script = """
+import os, socket, sys
+visible = os.path.exists("/workspace/nested/host-submount-canary")
+print("SUBMOUNT_VISIBLE=" + str(visible), flush=True)
+listener = socket.socket()
+listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+listener.bind(("0.0.0.0", int(sys.argv[1])))
+listener.listen()
+while True:
+    connection, _ = listener.accept()
+    connection.close()
+"""
+        preflight = preflight_docker_isolation(
+            image_reference=DOCKER_IMAGE,
+            base_url=f"http://127.0.0.1:{port}",
+            run_dir=run_dir,
+            source_root=source_root,
+        )
+        application = DockerManagedApplication.start(
+            preflight,
+            ("python", "-c", script, str(port)),
+            max_log_bytes=64 * 1024,
+        )
+        readiness = application.wait_for_readiness(
+            f"http://127.0.0.1:{port}", timeout_ms=5000
+        )
+        assert readiness.ready, readiness.reason
+    finally:
+        if application is not None:
+            try:
+                application.stop()
+            finally:
+                docker_cli(
+                    docker_executable,
+                    ("container", "rm", "--force", application.container_name),
+                )
+                docker_cli(
+                    docker_executable,
+                    ("network", "rm", application.network_name),
+                )
+        if mounted:
+            unmount_result = subprocess.run(
+                (sudo, "-n", umount, "--", str(nested_mount)),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                shell=False,
+                check=False,
+                timeout=10,
+            )
+            assert unmount_result.returncode == 0, unmount_result.stderr
+
+    assert application is not None
+    assert "SUBMOUNT_VISIBLE=False" in application.output().text
     assert managed_resources(docker_executable) == before
 
 

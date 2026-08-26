@@ -112,12 +112,13 @@ host's `127.0.0.1`.
 
 The fixed `agentverify-docker-baseline-v1` profile:
 
-- mounts the resolved current working directory at `/workspace` read-only and uses it as the
-  container working directory;
+- mounts the resolved current working directory at `/workspace` read-only, disables recursive
+  propagation of nested host submounts, and uses `/workspace` as the container working directory;
 - rejects a filesystem/drive-root source, an unsafe comma-delimited mount path, an in-source run
   directory, and images declaring Docker `VOLUME` paths;
-- uses a read-only container root filesystem with only a private 64 MiB `/tmp` tmpfs writable and
-  sets `HOME=/tmp`;
+- uses a read-only image/root filesystem and read-only source bind, with explicit ephemeral writable
+  storage at a private 64 MiB `/tmp` tmpfs and Docker's 64 MiB `/dev/shm`; sets `HOME=/tmp`, creates
+  no writable host bind, and accepts no Docker volume;
 - runs as numeric user `65534:65534`, drops all Linux capabilities, enables
   `no-new-privileges`, disables the image healthcheck, and explicitly replaces the image entrypoint
   with the reviewed application executable;
@@ -136,7 +137,10 @@ Desktop, the Linux VM/kernel/runtime, and the host remain trusted. An internal D
 intended to remove normal external connectivity, but runtime-specific Docker host/gateway services
 may remain reachable. M8 provides no per-destination egress rules, host-firewall management, proxy
 allowlists, DNS filtering, cloud-metadata firewall, image signatures, registry authenticity,
-attestation, or remote execution.
+attestation, or remote execution. The internal network constrains the application container, not the
+host-side Playwright Chromium process; untrusted page content may still initiate browser-side
+third-party network requests. Docker/runtime also owns standard virtual and special filesystem
+mounts, so this profile does not claim complete filesystem immutability or VM-grade isolation.
 
 Invalid or unsupported Docker requests fail with exit `2` before application startup and never
 downgrade to direct execution. Failures after a valid preflight, including early container exit,

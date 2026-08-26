@@ -136,9 +136,12 @@ never silently falls back to direct execution, pulls an image, or accepts raw Do
 starts one named container through an attached foreground Docker CLI process so combined output is
 continuously drained with bounded retention. The image ID is pinned with `--pull never`; the
 explicit application executable replaces image `ENTRYPOINT`. The source cwd is the only host bind
-mount and is read-only at `/workspace`; the run directory, host home, credentials, devices, and
-Docker socket are not mounted. The root filesystem is read-only and the only writable filesystem
-is a private 64 MiB `/tmp` tmpfs with `HOME=/tmp`.
+mount and is read-only at `/workspace`; `bind-recursive=disabled` prevents nested source submounts
+from propagating into the container. The run directory, host home, credentials, devices, and Docker
+socket are not mounted, and there are no writable host binds or Docker volumes. The image/root
+filesystem is read-only. Explicit ephemeral writable storage includes a private 64 MiB `/tmp` tmpfs
+with `HOME=/tmp` and Docker's 64 MiB `/dev/shm`; Docker/runtime also owns its standard virtual and
+special filesystem mounts. These controls do not imply complete immutability or VM-grade isolation.
 
 The fixed profile runs as `65534:65534`, drops all capabilities, sets `no-new-privileges`, disables
 the image healthcheck, and limits memory to 512 MiB, CPU to 1.0, PIDs to 256, `/dev/shm` to 64 MiB,
@@ -163,7 +166,9 @@ aggregate rule.
 The internal bridge is intended to remove normal external connectivity, but Docker-managed host or
 gateway services may remain reachable depending on host/runtime configuration. M8 adds no
 per-destination egress policy, firewall management, proxy allowlist, DNS filtering, metadata
-firewall, sidecar, image signature, attestation, remote Docker host, or remote execution.
+firewall, sidecar, image signature, attestation, remote Docker host, or remote execution. The
+internal network constrains the application container; host-side Playwright Chromium remains outside
+that network, so untrusted page content may still initiate browser-side third-party requests.
 
 ### Local verification orchestration
 

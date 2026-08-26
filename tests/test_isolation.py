@@ -9,10 +9,11 @@ import subprocess
 import threading
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from agentverify.application import ApplicationStartError
+from agentverify.application import ApplicationStartError, BoundedOutputDrain
 from agentverify.isolation import (
     DOCKER_CPU_LIMIT,
     DOCKER_MEMORY_LIMIT,
@@ -350,7 +351,8 @@ def test_fixed_docker_argv_pins_image_and_controls_all_boundaries(tmp_path: Path
         f"/tmp:rw,nosuid,nodev,size={DOCKER_TMPFS_LIMIT_BYTES}"
     )
     assert argv[argv.index("--mount") + 1] == (
-        f"type=bind,source={source_root.resolve()},target=/workspace,readonly"
+        f"type=bind,source={source_root.resolve()},target=/workspace,readonly,"
+        "bind-recursive=disabled"
     )
     assert "--read-only" in argv
     assert "--cap-drop" in argv and argv[argv.index("--cap-drop") + 1] == "ALL"
@@ -452,3 +454,114 @@ def test_loopback_relay_forwards_only_the_fixed_tcp_endpoint_and_stops() -> None
 
     with pytest.raises(OSError):
         socket.create_connection(("127.0.0.1", relay_port), timeout=0.1)
+
+
+class _AlwaysRunningProcess:
+    def poll(self) -> None:
+        return None
+
+
+def readiness_application(tmp_path: Path, *, port: int) -> DockerManagedApplication:
+    source_root, _ = valid_paths(tmp_path)
+    preflight = DockerIsolationPreflight(
+        docker_executable="/usr/bin/docker",
+        docker_server_version="28.3.1",
+        image_reference="python:3.12-slim",
+        image_id=IMAGE_ID,
+        source_root=source_root.resolve(),
+        port=port,
+    )
+    return DockerManagedApplication(
+        preflight=preflight,
+        container_name="agentverify-fixed-app",
+        network_name="agentverify-fixed-net",
+        process=cast(subprocess.Popen[bytes], _AlwaysRunningProcess()),
+        drain=BoundedOutputDrain(max_bytes=4096),
+        reader=threading.Thread(),
+    )
+
+
+def test_foreign_listener_after_preflight_never_authorizes_docker_delivery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with socket.socket() as foreign_listener:
+        foreign_listener.bind(("127.0.0.1", 0))
+        foreign_listener.listen()
+        port = int(foreign_listener.getsockname()[1])
+        application = readiness_application(tmp_path, port=port)
+        inspection_count = 0
+
+        def inspect_without_publication(*args: object, **kwargs: object) -> object:
+            nonlocal inspection_count
+            inspection_count += 1
+            return ("172.18.0.2", port), False
+
+        def relay_bind_fails(*args: object, **kwargs: object) -> object:
+            raise OSError("address already in use")
+
+        monkeypatch.setattr(
+            "agentverify.isolation._inspect_container_networking",
+            inspect_without_publication,
+        )
+        monkeypatch.setattr(
+            "agentverify.isolation._target_accepts_connection",
+            lambda *args, **kwargs: True,
+        )
+        monkeypatch.setattr(
+            "agentverify.isolation._LoopbackTCPRelay.start",
+            relay_bind_fails,
+        )
+
+        readiness = application.wait_for_readiness(
+            f"http://127.0.0.1:{port}",
+            timeout_ms=30,
+            poll_interval_seconds=0.001,
+        )
+
+        assert not readiness.ready
+        assert readiness.reason == "Docker application readiness timed out"
+        assert application.port_delivery is None
+        assert inspection_count >= 2
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            pass
+
+
+def test_fresh_exact_publication_inspection_authorizes_docker_delivery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 8765
+    application = readiness_application(tmp_path, port=port)
+    inspections = iter(
+        [
+            (("172.18.0.2", port), False),
+            (("172.18.0.2", port), True),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "agentverify.isolation._inspect_container_networking",
+        lambda *args, **kwargs: next(inspections),
+    )
+    monkeypatch.setattr(
+        "agentverify.isolation._target_accepts_connection",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "agentverify.isolation.endpoint_accepts_connection",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "agentverify.isolation._LoopbackTCPRelay.start",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("address in use")),
+    )
+
+    readiness = application.wait_for_readiness(
+        f"http://127.0.0.1:{port}",
+        timeout_ms=100,
+        poll_interval_seconds=0.001,
+    )
+
+    assert readiness.ready
+    assert application.port_delivery == "docker"
