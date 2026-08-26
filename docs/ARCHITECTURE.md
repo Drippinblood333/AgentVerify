@@ -147,7 +147,14 @@ same container port; the application must therefore bind `0.0.0.0` internally. T
 receives only minimal AgentVerify-controlled environment values in addition to the selected
 image's own declared environment, never arbitrary host variables.
 
-Cleanup addresses only the exact names created for the run. It requests bounded stop, inspects the
+Some Docker Engine configurations retain `HostConfig.PortBindings` but do not activate a host
+mapping for a container attached only to an internal bridge. After proving the exact container
+target accepts TCP, AgentVerify detects this state and creates a bounded stdlib TCP relay bound only
+to `127.0.0.1:<verification-port>` and forwarding only to the exact managed container IP and same
+port. This fallback adds no network, container, host bind mount, Docker-socket access, or external
+listener. It is owned and cleaned by the Docker application lifecycle.
+
+Cleanup first closes and confirms any loopback relay, then addresses only the exact names created for the run. It requests bounded stop, inspects the
 container, escalates and force-removes if needed, confirms absence, removes and confirms the exact
 network, and finalizes the attached client and output drain. Cleanup uncertainty makes a non-FAIL
 run incomplete/`UNKNOWN`; a real browser assertion `FAIL` remains `FAIL` under the existing

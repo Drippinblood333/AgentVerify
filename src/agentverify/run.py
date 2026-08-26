@@ -91,6 +91,8 @@ _DOCKER_LIMITATIONS = (
     "Linux VM/kernel/runtime, and the host remain trusted infrastructure.",
     "The internal Docker bridge is intended to remove normal external connectivity but may "
     "still permit Docker-managed host or gateway communication depending on the runtime.",
+    "When Docker does not activate a requested localhost mapping for an internal-only bridge, "
+    "AgentVerify uses a bounded host-loopback TCP relay to the exact managed container port.",
     "The Docker isolation baseline provides no image signature, registry authenticity, "
     "attestation, remote execution, or universal host-network separation guarantee.",
     "Textual redaction is best-effort; rich browser artifacts may contain sensitive data.",

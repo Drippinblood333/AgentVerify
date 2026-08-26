@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
+from agentverify.application import endpoint_accepts_connection
 from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_SUCCESS, EXIT_UNKNOWN, main
 from agentverify.domain import Verdict
 from agentverify.evidence import EvidenceKind, EvidenceStore
@@ -237,6 +238,7 @@ def test_direct_and_docker_pass_have_stable_semantics_and_v3_inspection(
     inspected = capsys.readouterr()
     assert "Integrity: OK" in inspected.out
     assert "Receipt schema: 3" in inspected.out
+    assert not endpoint_accepts_connection(f"http://127.0.0.1:{docker_port}")
     assert managed_resources(docker_executable) == before
 
 
@@ -271,6 +273,7 @@ def test_isolated_assertion_fail_remains_fail_and_cleans_resources(
     assert receipt.overall_verdict is Verdict.FAIL
     assert receipt.completed
     assert receipt.criteria[0].verdict is Verdict.FAIL
+    assert not endpoint_accepts_connection(f"http://127.0.0.1:{port}")
     assert managed_resources(docker_executable) == before
 
 
@@ -421,6 +424,14 @@ while True:
         assert host_config["PortBindings"][f"{port}/tcp"] == [
             {"HostIp": "127.0.0.1", "HostPort": str(port)}
         ]
+        active_publication = container["NetworkSettings"]["Ports"][f"{port}/tcp"]
+        if application.port_delivery == "docker":
+            assert active_publication == [
+                {"HostIp": "127.0.0.1", "HostPort": str(port)}
+            ]
+        else:
+            assert application.port_delivery == "agentverify-loopback-relay"
+            assert active_publication is None
         mounts = container["Mounts"]
         bind_mounts = [mount for mount in mounts if mount["Type"] == "bind"]
         assert len(bind_mounts) == 1
@@ -466,6 +477,7 @@ while True:
         "tmp_write": True,
     }
     assert not source_marker.exists()
+    assert not endpoint_accepts_connection(f"http://127.0.0.1:{port}")
     assert managed_resources(docker_executable) == before
 
 
@@ -509,6 +521,7 @@ def test_abnormal_container_termination_is_cleaned_exactly(
         docker_cli(docker_executable, ("network", "rm", application.network_name))
 
     assert managed_resources(docker_executable) == before
+    assert not endpoint_accepts_connection(f"http://127.0.0.1:{port}")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="reliable SIGINT delivery requires POSIX")

@@ -124,8 +124,11 @@ The fixed `agentverify-docker-baseline-v1` profile:
 - forwards no arbitrary host environment variables or secrets and mounts neither host home paths
   nor the Docker socket;
 - applies 512 MiB memory, 1.0 CPU, 256 PID, 64 MiB `/dev/shm`, and 64 MiB `/tmp` limits; and
-- creates one uniquely named internal bridge network and one container, then stops, inspects,
-  force-removes when necessary, and confirms removal of those exact managed resources.
+- creates one uniquely named internal bridge network and one container; if Docker retains but does
+  not activate the requested mapping for an internal-only bridge, a bounded stdlib TCP relay binds
+  only the exact host-loopback port and forwards only to that container IP/port; and
+- stops the relay/container, inspects, force-removes when necessary, and confirms removal of the
+  exact managed resources.
 
 This is an optional Docker isolation baseline that reduces host exposure. It is not a VM or proof
 that arbitrary malicious code cannot affect trusted infrastructure. Docker Engine or Docker

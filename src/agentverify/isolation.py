@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -38,6 +40,7 @@ DOCKER_USER = "65534:65534"
 _CLI_TIMEOUT_SECONDS = 10.0
 _CLEANUP_TIMEOUT_SECONDS = 10.0
 _IMAGE_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_MAX_RELAY_CONNECTIONS = 32
 
 
 class DockerIsolationConfigurationError(ValueError):
@@ -54,6 +57,120 @@ class DockerIsolationPreflight:
     image_id: str
     source_root: Path
     port: int
+
+
+class _LoopbackTCPRelay:
+    """Bounded host-loopback relay to one exact internal-network endpoint."""
+
+    def __init__(
+        self,
+        *,
+        listener: socket.socket,
+        target: tuple[str, int],
+    ) -> None:
+        self._listener = listener
+        self._target = target
+        self._stop_requested = threading.Event()
+        self._lock = threading.Lock()
+        self._active_sockets: set[socket.socket] = set()
+        self._workers: set[threading.Thread] = set()
+        self._accept_thread = threading.Thread(
+            target=self._accept_connections,
+            name="agentverify-docker-loopback-relay",
+            daemon=True,
+        )
+
+    @classmethod
+    def start(cls, *, host_port: int, target: tuple[str, int]) -> _LoopbackTCPRelay:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", host_port))
+            listener.listen(_MAX_RELAY_CONNECTIONS)
+            listener.settimeout(0.2)
+        except OSError:
+            listener.close()
+            raise
+        relay = cls(listener=listener, target=target)
+        relay._accept_thread.start()
+        return relay
+
+    def stop(self) -> None:
+        self._stop_requested.set()
+        self._listener.close()
+        with self._lock:
+            active_sockets = tuple(self._active_sockets)
+        for active_socket in active_sockets:
+            try:
+                active_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            active_socket.close()
+        self._accept_thread.join(timeout=1)
+        with self._lock:
+            workers = tuple(self._workers)
+        for worker in workers:
+            worker.join(timeout=1)
+        if self._accept_thread.is_alive() or any(worker.is_alive() for worker in workers):
+            raise ApplicationCleanupError(
+                "Docker loopback relay cleanup could not be confirmed"
+            )
+
+    def _accept_connections(self) -> None:
+        while not self._stop_requested.is_set():
+            try:
+                client, _ = self._listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            with self._lock:
+                if len(self._workers) >= _MAX_RELAY_CONNECTIONS:
+                    client.close()
+                    continue
+                worker = threading.Thread(
+                    target=self._relay_connection,
+                    args=(client,),
+                    name="agentverify-docker-relay-connection",
+                    daemon=True,
+                )
+                self._workers.add(worker)
+            worker.start()
+
+    def _relay_connection(self, client: socket.socket) -> None:
+        current = threading.current_thread()
+        target: socket.socket | None = None
+        try:
+            target = socket.create_connection(self._target, timeout=1)
+            client.settimeout(1)
+            target.settimeout(1)
+            with self._lock:
+                self._active_sockets.update((client, target))
+            while not self._stop_requested.is_set():
+                try:
+                    readable, _, _ = select.select((client, target), (), (), 0.2)
+                except OSError:
+                    return
+                for source in readable:
+                    destination = target if source is client else client
+                    try:
+                        data = source.recv(64 * 1024)
+                        if not data:
+                            return
+                        destination.sendall(data)
+                    except OSError:
+                        return
+        except OSError:
+            return
+        finally:
+            client.close()
+            if target is not None:
+                target.close()
+            with self._lock:
+                self._active_sockets.discard(client)
+                if target is not None:
+                    self._active_sockets.discard(target)
+                self._workers.discard(current)
 
 
 def preflight_docker_isolation(
@@ -219,6 +336,8 @@ class DockerManagedApplication:
         self._process = process
         self._drain = drain
         self._reader = reader
+        self._relay: _LoopbackTCPRelay | None = None
+        self.port_delivery: str | None = None
         self.state = ApplicationState.RUNNING
 
     @classmethod
@@ -348,8 +467,9 @@ class DockerManagedApplication:
         timeout_ms: int,
         poll_interval_seconds: float = 0.05,
     ) -> ReadinessResult:
-        """Reuse bounded host-loopback readiness while observing docker-run exit."""
+        """Wait for the exact container target and establish loopback-only delivery."""
         deadline = time.monotonic() + timeout_ms / 1000
+        target: tuple[str, int] | None = None
         while True:
             if self._process.poll() is not None:
                 self.state = ApplicationState.EXITED_BEFORE_READINESS
@@ -357,10 +477,49 @@ class DockerManagedApplication:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return ReadinessResult(False, "Docker application readiness timed out")
-            if endpoint_accepts_connection(
-                base_url,
+
+            networking = _inspect_container_networking(
+                self._preflight.docker_executable,
+                self.container_name,
+                network_name=self.network_name,
+                port=self._preflight.port,
+                timeout_seconds=min(1.0, max(remaining, 0.1)),
+            )
+            if networking is not None:
+                target, docker_port_is_published = networking
+            else:
+                docker_port_is_published = False
+
+            if target is not None and _target_accepts_connection(
+                target,
                 timeout_seconds=min(0.2, remaining),
             ):
+                if docker_port_is_published:
+                    if not endpoint_accepts_connection(
+                        base_url,
+                        timeout_seconds=min(0.2, remaining),
+                    ):
+                        time.sleep(min(poll_interval_seconds, max(remaining, 0)))
+                        continue
+                    self.port_delivery = "docker"
+                else:
+                    try:
+                        self._relay = _LoopbackTCPRelay.start(
+                            host_port=self._preflight.port,
+                            target=target,
+                        )
+                    except OSError:
+                        if not endpoint_accepts_connection(
+                            base_url,
+                            timeout_seconds=min(0.2, remaining),
+                        ):
+                            return ReadinessResult(
+                                False,
+                                "Docker loopback port delivery could not start",
+                            )
+                        self.port_delivery = "docker"
+                    else:
+                        self.port_delivery = "agentverify-loopback-relay"
                 if self._process.poll() is not None:
                     self.state = ApplicationState.EXITED_BEFORE_READINESS
                     return ReadinessResult(False, "Docker application exited before readiness")
@@ -380,6 +539,14 @@ class DockerManagedApplication:
         errors: list[str] = []
         force_killed = False
         docker = self._preflight.docker_executable
+
+        if self._relay is not None:
+            try:
+                self._relay.stop()
+            except ApplicationCleanupError as error:
+                errors.append(str(error))
+            finally:
+                self._relay = None
 
         container_state = _inspect_container_state(docker, self.container_name)
         remove_result: subprocess.CompletedProcess[str] | None = None
@@ -585,6 +752,62 @@ def _docker_base_url_port(base_url: str) -> int:
             "Docker isolation base URL must include an explicit TCP port"
         )
     return port
+
+
+def _inspect_container_networking(
+    docker: str,
+    container_name: str,
+    *,
+    network_name: str,
+    port: int,
+    timeout_seconds: float = 1.0,
+) -> tuple[tuple[str, int], bool] | None:
+    try:
+        result = _run_cli(
+            (docker, "container", "inspect", container_name),
+            timeout_seconds=timeout_seconds,
+        )
+    except DockerIsolationConfigurationError:
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+        metadata = payload[0]
+        network_settings = metadata["NetworkSettings"]
+        attached_network = network_settings["Networks"][network_name]
+        container_ip = attached_network["IPAddress"]
+        published = network_settings["Ports"].get(f"{port}/tcp")
+        if not isinstance(container_ip, str) or not container_ip:
+            return None
+        socket.inet_pton(socket.AF_INET, container_ip)
+    except (
+        IndexError,
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return None
+    expected_binding = {"HostIp": "127.0.0.1", "HostPort": str(port)}
+    docker_port_is_published = (
+        isinstance(published, list) and expected_binding in published
+    )
+    return (container_ip, port), docker_port_is_published
+
+
+def _target_accepts_connection(
+    target: tuple[str, int],
+    *,
+    timeout_seconds: float,
+) -> bool:
+    try:
+        connection = socket.create_connection(target, timeout=timeout_seconds)
+    except OSError:
+        return False
+    connection.close()
+    return True
 
 
 def _run_cli(

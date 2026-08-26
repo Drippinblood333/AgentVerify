@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from agentverify.isolation import (
     DockerIsolationPreflight,
     DockerManagedApplication,
     _docker_run_argv,
+    _LoopbackTCPRelay,
     preflight_docker_isolation,
 )
 
@@ -416,3 +419,36 @@ def test_start_failure_after_network_creation_cleans_only_exact_managed_names(
     )
     assert re.fullmatch(r"agentverify-[0-9a-f]{32}-app", removed_container)
     assert re.fullmatch(r"agentverify-[0-9a-f]{32}-net", removed_network)
+
+
+def test_loopback_relay_forwards_only_the_fixed_tcp_endpoint_and_stops() -> None:
+    with socket.socket() as target_listener:
+        target_listener.bind(("127.0.0.1", 0))
+        target_listener.listen()
+        target_port = int(target_listener.getsockname()[1])
+        with socket.socket() as port_probe:
+            port_probe.bind(("127.0.0.1", 0))
+            relay_port = int(port_probe.getsockname()[1])
+
+        def echo_once() -> None:
+            connection, _ = target_listener.accept()
+            with connection:
+                connection.sendall(connection.recv(1024))
+
+        target_thread = threading.Thread(target=echo_once, daemon=True)
+        target_thread.start()
+        relay = _LoopbackTCPRelay.start(
+            host_port=relay_port,
+            target=("127.0.0.1", target_port),
+        )
+        try:
+            with socket.create_connection(("127.0.0.1", relay_port), timeout=1) as client:
+                client.sendall(b"relay-check")
+                assert client.recv(1024) == b"relay-check"
+        finally:
+            relay.stop()
+        target_thread.join(timeout=1)
+        assert not target_thread.is_alive()
+
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", relay_port), timeout=0.1)
