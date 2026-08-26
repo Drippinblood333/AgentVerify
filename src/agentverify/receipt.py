@@ -174,8 +174,86 @@ class ProofReceiptV2(BaseModel):
         return self
 
 
+class DirectExecutionMetadata(BaseModel):
+    """Receipt-v3 metadata for the unchanged direct execution route."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    isolation_mode: Literal["none"] = "none"
+
+
+class DockerExecutionMetadata(BaseModel):
+    """Receipt-v3 metadata for the concrete local Docker image used."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    isolation_mode: Literal["docker"] = "docker"
+    isolation_profile: NonBlankText
+    docker_server_version: NonBlankText
+    image_reference: NonBlankText
+    image_id: Annotated[
+        str,
+        StringConstraints(strict=True, pattern=_DIGEST_PATTERN),
+    ]
+
+
+type ExecutionMetadata = Annotated[
+    DirectExecutionMetadata | DockerExecutionMetadata,
+    Field(discriminator="isolation_mode"),
+]
+
+
+class ProofReceiptV3(BaseModel):
+    """M8 receipt recording the selected direct or Docker execution route."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: Literal[3] = 3
+    task: NonBlankText
+    plan_digest: NonBlankText
+    overall_verdict: Verdict
+    completed: bool
+    criteria: Annotated[tuple[ReceiptCriterionResult, ...], Field(min_length=1)]
+    environment: EnvironmentMetadataV2
+    source_provenance: SourceProvenance
+    evidence_manifest_digest: Annotated[
+        str,
+        StringConstraints(strict=True, pattern=_DIGEST_PATTERN),
+    ]
+    execution: ExecutionMetadata
+    limitations: Annotated[tuple[NonBlankText, ...], Field(min_length=1)]
+
+    @field_validator("criteria")
+    @classmethod
+    def require_unique_criterion_ids(
+        cls,
+        criteria: tuple[ReceiptCriterionResult, ...],
+    ) -> tuple[ReceiptCriterionResult, ...]:
+        seen: set[str] = set()
+        for criterion in criteria:
+            if criterion.criterion_id in seen:
+                raise ValueError(
+                    f"receipt criterion id must be unique: {criterion.criterion_id}"
+                )
+            seen.add(criterion.criterion_id)
+        return criteria
+
+    @model_validator(mode="after")
+    def require_consistent_overall_verdict(self) -> ProofReceiptV3:
+        expected = aggregate_receipt_verdict(
+            [criterion.verdict for criterion in self.criteria],
+            completed=self.completed,
+        )
+        if self.overall_verdict is not expected:
+            raise ValueError(
+                "overall verdict must match criterion verdicts and completion state: "
+                f"expected {expected.value}, got {self.overall_verdict.value}"
+            )
+        return self
+
+
 type SupportedProofReceipt = Annotated[
-    ProofReceiptV1 | ProofReceiptV2,
+    ProofReceiptV1 | ProofReceiptV2 | ProofReceiptV3,
     Field(discriminator="schema_version"),
 ]
 _SUPPORTED_RECEIPT_ADAPTER: TypeAdapter[SupportedProofReceipt] = TypeAdapter(
@@ -302,6 +380,48 @@ def build_receipt_v2(
     )
 
 
+def build_receipt_v3(
+    *,
+    plan: SupportedVerificationPlan,
+    results: Sequence[VerificationResult],
+    completed: bool,
+    environment: EnvironmentMetadataV2,
+    source_provenance: SourceProvenance,
+    evidence_manifest_digest: str,
+    execution: ExecutionMetadata,
+    limitations: Sequence[str],
+) -> ProofReceiptV3:
+    """Build an M8 receipt without changing historical receipt schemas."""
+    plan_criteria = cast(Sequence[_ReceiptPlanCriterion], plan.criteria)
+    indexed_results = _index_results(plan, results)
+    ordered_results = tuple(indexed_results[criterion.id] for criterion in plan_criteria)
+    criteria = tuple(
+        ReceiptCriterionResult(
+            criterion_id=criterion.id,
+            description=criterion.description,
+            verdict=result.verdict,
+            reason=result.reason,
+            evidence_refs=result.evidence_refs,
+        )
+        for criterion, result in zip(plan_criteria, ordered_results, strict=True)
+    )
+    return ProofReceiptV3(
+        task=plan.task,
+        plan_digest=plan_digest(plan),
+        overall_verdict=aggregate_receipt_verdict(
+            [result.verdict for result in ordered_results],
+            completed=completed,
+        ),
+        completed=completed,
+        criteria=criteria,
+        environment=environment,
+        source_provenance=source_provenance,
+        evidence_manifest_digest=evidence_manifest_digest,
+        execution=execution,
+        limitations=tuple(limitations),
+    )
+
+
 def render_receipt_json(receipt: SupportedProofReceipt) -> str:
     """Render a receipt as canonical UTF-8-compatible JSON with one newline."""
     payload: dict[str, Any] = receipt.model_dump(mode="json")
@@ -327,7 +447,7 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
         f"Python: {receipt.environment.python_version}",
         f"Platform: {receipt.environment.platform}",
     ]
-    if isinstance(receipt, ProofReceiptV2):
+    if isinstance(receipt, (ProofReceiptV2, ProofReceiptV3)):
         provenance = receipt.source_provenance
         lines.extend(
             (
@@ -348,6 +468,17 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
             lines.append(f"Source provenance reason: {provenance.reason}")
         if provenance.git_version is not None:
             lines.append(f"Git: {provenance.git_version}")
+        if isinstance(receipt, ProofReceiptV3):
+            lines.append(f"Isolation mode: {receipt.execution.isolation_mode}")
+            if isinstance(receipt.execution, DockerExecutionMetadata):
+                lines.extend(
+                    (
+                        f"Isolation profile: {receipt.execution.isolation_profile}",
+                        f"Docker server: {receipt.execution.docker_server_version}",
+                        f"Docker image reference: {receipt.execution.image_reference}",
+                        f"Docker image ID: {receipt.execution.image_id}",
+                    )
+                )
     lines.extend(("", "Criteria", ""))
     for criterion in receipt.criteria:
         evidence = ", ".join(criterion.evidence_refs) or "(none)"
@@ -366,7 +497,7 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
 
 
 def load_receipt(path: Path) -> SupportedProofReceipt:
-    """Load a strict receipt-v1 or receipt-v2 JSON document from disk."""
+    """Load a strict supported receipt JSON document from disk."""
     try:
         if not path.exists():
             raise ReceiptLoadError("proof receipt does not exist")

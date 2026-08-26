@@ -4,17 +4,21 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M7 composes versioned Plan v2 execution, a bounded local
-application lifecycle, deterministic browser verification, durable evidence authority, real
-verification results, versioned proof receipts, read-only source provenance, and post-run integrity
-inspection into the minimum complete CLI flow. Isolation, worktrees, and release hardening remain
-later milestones.
+M0 defined these boundaries and contracts. M8 composes versioned Plan v2 execution, bounded direct
+and opt-in Docker application lifecycles, deterministic browser verification, durable evidence
+authority, real verification results, receipt v3 execution metadata, read-only source provenance,
+and post-run integrity inspection into the minimum complete CLI flow. Worktrees and release
+hardening remain later milestones.
 
 ## System context and trust boundary
 
 The user supplies three things: a worktree to inspect, a command or URL for a locally runnable web application, and a reviewed acceptance plan. The application and its builder-produced tests are **untrusted inputs**. AgentVerify's own verifier code, frozen plan, run metadata, and evidence hashes form the verification side of the boundary.
 
-Local execution is not strong isolation. Before the isolated-environment milestone, application commands run with the current user's permissions; this must be prominently disclosed. Evidence may also contain sensitive application data, so collection must be allowlisted, bounded, and redactable.
+Direct application commands run with the current user's permissions. M8 adds one optional Docker
+isolation baseline that reduces host exposure but trusts Docker Engine or Docker Desktop, its Linux
+VM/kernel/runtime, and the host. It is not a VM or a proof about arbitrary malicious code. Evidence
+may also contain sensitive application data, so collection must be allowlisted, bounded, and
+redactable.
 
 ## Core concepts
 
@@ -22,7 +26,8 @@ These are the product's conceptual schemas. Plan v1 retains the criteria-only M2
 adds immutable `BrowserAcceptanceCriterion` and `BrowserProcedure` models. M3's evidence-requiring
 `VerificationResult` and receipt-v1 contract remain unchanged. M5 adds immutable
 `EvidenceArtifact` and `EvidenceManifest` models without adding evidence policy to either plan
-version. M7 adds receipt v2 around the same verdict semantics.
+version. M7 adds receipt v2 around the same verdict semantics. M8 adds receipt v3 with explicit
+direct or Docker execution metadata while preserving those semantics.
 
 ### Task
 
@@ -53,8 +58,12 @@ indicator rather than cryptographic attestation.
 
 The reviewable output for a completed run. Receipt v1 remains byte-compatible with M3. Receipt v2
 adds the Playwright package version, structured source provenance, and the SHA-256 digest of the
-exact persisted manifest bytes. Both versions retain the same criteria, completion, and aggregate
-verdict semantics and have stable machine-readable and human-readable renderings.
+exact persisted manifest bytes. Receipt v3 preserves those fields and adds structured execution
+metadata: every new run records `isolation_mode`, while Docker runs also record the fixed isolation
+profile, Docker server version, supplied image reference, and resolved local image ID. All versions
+retain the same criteria, completion, and aggregate verdict semantics. The image ID identifies the
+actual local image used without claiming registry authenticity, signature verification, or
+attestation.
 
 The deterministic aggregate rule is:
 
@@ -80,7 +89,8 @@ and requires opt-in for screenshots, traces, console errors, and network summari
 
 Fresh contexts isolate cookies, local storage, session storage, and page state between criteria.
 They do not isolate the browser or application from the host. The externally started application
-runs with normal user permissions, and loaded pages may make third-party network requests.
+runs with normal user permissions in direct mode; the optional Docker route applies the separate
+baseline below. Browser pages themselves may make third-party network requests.
 
 ### EvidenceStore and result bridge
 
@@ -113,9 +123,56 @@ group even if its direct group leader exits before cleanup; the group receives b
 SIGKILL escalation when necessary. Windows continues to guarantee the directly managed process
 only. This adapter never decides a verdict.
 
+### Docker isolation adapter
+
+`isolation.py` uses only stdlib subprocess calls, explicit argv, `shell=False`, and bounded
+timeouts. Docker validation runs only when `--isolation docker` is selected. Preflight requires a
+reachable Docker Engine server 28+ using Linux containers, an exact `127.0.0.1` base URL with an
+explicit port, a local Unix-socket or named-pipe Docker endpoint, a safely representable non-root current working directory, an out-of-source run
+directory, and an already-local image with a valid `sha256:` ID and no declared `VOLUME` paths. It
+never silently falls back to direct execution, pulls an image, or accepts raw Docker arguments.
+
+`DockerManagedApplication` creates one collision-resistant, labeled, internal bridge network and
+starts one named container through an attached foreground Docker CLI process so combined output is
+continuously drained with bounded retention. The image ID is pinned with `--pull never`; the
+explicit application executable replaces image `ENTRYPOINT`. The source cwd is the only host bind
+mount and is read-only at `/workspace`; `bind-recursive=disabled` prevents nested source submounts
+from propagating into the container. The run directory, host home, credentials, devices, and Docker
+socket are not mounted, and there are no writable host binds or Docker volumes. The image/root
+filesystem is read-only. Explicit ephemeral writable storage includes a private 64 MiB `/tmp` tmpfs
+with `HOME=/tmp` and Docker's 64 MiB `/dev/shm`; Docker/runtime also owns its standard virtual and
+special filesystem mounts. These controls do not imply complete immutability or VM-grade isolation.
+
+The fixed profile runs as `65534:65534`, drops all capabilities, sets `no-new-privileges`, disables
+the image healthcheck, and limits memory to 512 MiB, CPU to 1.0, PIDs to 256, `/dev/shm` to 64 MiB,
+and `/tmp` to 64 MiB. Only the verification TCP port is published to host `127.0.0.1`, with the
+same container port; the application must therefore bind `0.0.0.0` internally. The container
+receives only minimal AgentVerify-controlled environment values in addition to the selected
+image's own declared environment, never arbitrary host variables.
+
+Some Docker Engine configurations retain `HostConfig.PortBindings` but do not activate a host
+mapping for a container attached only to an internal bridge. After proving the exact container
+target accepts TCP, AgentVerify detects this state and creates a bounded stdlib TCP relay bound only
+to `127.0.0.1:<verification-port>` and forwarding only to the exact managed container IP and same
+port. This fallback adds no network, container, host bind mount, Docker-socket access, or external
+listener. It is owned and cleaned by the Docker application lifecycle.
+
+Cleanup first closes and confirms any loopback relay, then addresses only the exact names created for the run. It requests bounded stop, inspects the
+container, escalates and force-removes if needed, confirms absence, removes and confirms the exact
+network, and finalizes the attached client and output drain. Cleanup uncertainty makes a non-FAIL
+run incomplete/`UNKNOWN`; a real browser assertion `FAIL` remains `FAIL` under the existing
+aggregate rule.
+
+The internal bridge is intended to remove normal external connectivity, but Docker-managed host or
+gateway services may remain reachable depending on host/runtime configuration. M8 adds no
+per-destination egress policy, firewall management, proxy allowlist, DNS filtering, metadata
+firewall, sidecar, image signature, attestation, remote Docker host, or remote execution. The
+internal network constrains the application container; host-side Playwright Chromium remains outside
+that network, so untrusted page content may still initiate browser-side third-party requests.
+
 ### Local verification orchestration
 
-The M6 use case first validates the loopback origin and probes its TCP endpoint before creating
+The local verification use case first validates the loopback origin and probes its TCP endpoint before creating
 permanent run output or starting the command. An endpoint that is already accepting connections is
 invalid run configuration; requiring a closed-to-accepting transition prevents obvious stale-service
 attribution but does not prove PID-level port ownership. The use case then preflights a new or empty
@@ -127,11 +184,12 @@ Application exit or interruption marks the run incomplete while preserving any r
 established.
 
 Receipt construction remains pure and accepts either supported plan version through their shared
-task and criterion snapshots. The real CLI path emits receipt v2 after hashing the exact persisted
-manifest bytes, then atomically creates `receipt.json` and `receipt.txt` and performs the same
-read-only integrity inspection exposed by the CLI. Plan v1 golden receipt bytes and schema version 1
-remain unchanged. A final canonical reload of the original plan source warns about post-snapshot
-semantic drift without changing the frozen receipt or verdict.
+task and criterion snapshots. The real CLI path emitted receipt v2 through M7; M8 changes new real
+runs to receipt v3 with explicit direct/Docker execution metadata after hashing the exact persisted
+manifest bytes. It then atomically creates `receipt.json` and `receipt.txt` and performs the same
+read-only integrity inspection exposed by the CLI. Plan v1 golden receipt bytes/schema version 1
+and focused receipt-v2 loading/rendering remain unchanged. A final canonical reload of the original
+plan source warns about post-snapshot semantic drift without changing the frozen receipt or verdict.
 
 ### Source provenance and run inspection
 
@@ -142,7 +200,7 @@ unavailable metadata and do not alter the verdict. A dirty worktree means HEAD a
 identify the verified filesystem bytes. The adapter does not create or switch worktrees and does
 not verify a requested revision.
 
-Run inspection is read-only. It loads receipt v2, compares its manifest digest to the current exact
+Run inspection is read-only. It loads receipt v2 or v3, compares its manifest digest to the current exact
 manifest bytes, applies existing artifact path/size/SHA-256 checks, and validates receipt evidence
 references and criterion associations. It does not rerun Chromium, replay criteria, repair files, or
 rewrite a historical verdict. These unkeyed digests are integrity indicators, not authentication:
@@ -151,10 +209,11 @@ an attacker controlling the entire bundle can recompute them consistently.
 ### CLI
 
 The only v0.1 user interface and the composition root. It accepts Plan v2, a loopback base URL, an
-empty run directory, a bounded startup timeout, and a final application argv. It maps the completed
+empty run directory, a bounded startup timeout, optional `--isolation {none,docker}` and local image
+reference, and a final application argv. Direct mode is the default. It maps the completed
 receipt to `0`/`1`/`3` for `PASS`/`FAIL`/`UNKNOWN`, and uses `2` for invalid invocation or input.
 Business rules, browser code, lifecycle state, and receipt aggregation do not live in handlers.
-`inspect --run-dir` returns `0` for an intact v2 bundle, `2` for invalid input or an unsupported
+`inspect --run-dir` returns `0` for an intact v2/v3 bundle, `2` for invalid input or an unsupported
 receipt, and `3` for an integrity warning.
 
 ## Proposed module boundaries
@@ -171,12 +230,13 @@ agentverify/
   run.py             # evidence-authoritative local verification orchestration
   evidence.py        # artifact capture and manifest operations
   provenance.py      # bounded read-only Git source metadata
+  isolation.py       # optional Docker preflight, fixed profile, lifecycle, and cleanup
   inspection.py      # read-only receipt/manifest/artifact integrity checks
   receipt.py         # versioned receipt construction, rendering, and loading
   cli.py             # arguments, composition, user-facing exits
 ```
 
-This is a boundary sketch, not a requirement to create every file at once. Split a module only when the milestone gives it real behavior and tests. Filesystem, subprocess, browser, Git, and future container operations are outer adapters. The core never imports the CLI or a vendor SDK.
+This is a boundary sketch, not a requirement to create every file at once. Split a module only when the milestone gives it real behavior and tests. Filesystem, subprocess, browser, Git, and Docker operations are outer adapters. The core never imports the CLI or a vendor SDK.
 
 ## Dependency direction
 
@@ -230,7 +290,8 @@ authoritative under receipt aggregation even when the run later becomes incomple
 1. **False confidence:** weak assertions or an incorrect aggregate rule can produce a credible but unjustified `PASS`.
 2. **Acceptance integrity:** a builder can influence criteria or tests unless their provenance and pre-run snapshot are visible and protected.
 3. **Nondeterministic web behavior:** timing, state leakage, animations, and third-party dependencies can cause flaky results.
-4. **Unsafe local execution:** the application under test may be broken or malicious, and initial local execution is not isolation.
+4. **Unsafe local execution:** direct execution has normal user authority; Docker mode reduces
+   exposure but still trusts the host, Docker runtime, and Linux kernel boundary.
 5. **Evidence quality and privacy:** too little evidence is not auditable; too much can leak secrets, become expensive, or obscure the relevant fact.
 
 These risks should be addressed through explicit semantics, focused fixtures, artifact limits, redaction, reproducibility metadata, and later isolation—not through premature distributed infrastructure.
