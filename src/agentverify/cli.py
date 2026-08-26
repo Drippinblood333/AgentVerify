@@ -11,6 +11,11 @@ from agentverify import __version__
 from agentverify.browser import BaseURLValidationError
 from agentverify.browser_plan import BrowserVerificationPlan
 from agentverify.domain import Verdict
+from agentverify.inspection import (
+    InspectionInputError,
+    RunIntegrityError,
+    inspect_run_directory,
+)
 from agentverify.plan import PlanError, load_plan
 from agentverify.run import (
     RunConfigurationError,
@@ -81,6 +86,16 @@ def build_parser() -> argparse.ArgumentParser:
         nargs=argparse.REMAINDER,
         help="application argv; this must be the final AgentVerify option",
     )
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="check the integrity of an existing AgentVerify run directory",
+    )
+    inspect_parser.add_argument(
+        "--run-dir",
+        required=True,
+        type=Path,
+        help="existing run directory containing a supported receipt",
+    )
     return parser
 
 
@@ -102,6 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_dir=args.run_dir,
                 app_command=args.app_command,
                 startup_timeout_ms=args.startup_timeout_ms,
+                plan_source_path=args.plan,
             )
         except KeyboardInterrupt:
             print("agentverify: verification interrupted", file=sys.stderr)
@@ -112,7 +128,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         except RunOperationalError as error:
             print(f"agentverify: verification incomplete: {error}", file=sys.stderr)
             return EXIT_UNKNOWN
+        except RunIntegrityError as error:
+            print(f"agentverify: integrity warning: {error}", file=sys.stderr)
+            return EXIT_UNKNOWN
 
+        if outcome.plan_drift_warning is not None:
+            print(outcome.plan_drift_warning, file=sys.stderr)
         print(f"Verdict: {outcome.receipt.overall_verdict.value}")
         print(f"Receipt: {outcome.receipt_text_path}")
         print(f"Receipt JSON: {outcome.receipt_json_path}")
@@ -122,5 +143,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         if outcome.receipt.overall_verdict is Verdict.FAIL:
             return EXIT_FAIL
         return EXIT_UNKNOWN
+
+    if args.command == "inspect":
+        try:
+            inspection = inspect_run_directory(args.run_dir)
+        except InspectionInputError as error:
+            print(f"agentverify: error: {error}", file=sys.stderr)
+            return EXIT_USAGE
+        except RunIntegrityError as error:
+            print(f"agentverify: integrity warning: {error}", file=sys.stderr)
+            return EXIT_UNKNOWN
+
+        print(f"Verdict: {inspection.receipt.overall_verdict.value}")
+        print("Integrity: OK")
+        print(f"Receipt schema: {inspection.receipt.schema_version}")
+        print(f"Manifest: {inspection.receipt.evidence_manifest_digest}")
+        return EXIT_SUCCESS
 
     parser.error(f"unsupported command: {args.command}")

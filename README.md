@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify can now run one complete local verification flow: it starts a local web application, waits for readiness, executes a reviewed Plan v2 in Chromium, persists integrity-checked evidence and proof receipts, reports a deterministic exit code, and cleans up the managed process.
+> **Status: early development.** AgentVerify can run one complete local verification flow, record
+> source provenance when Git is available, bind receipt v2 to persisted evidence, and inspect an
+> existing run for integrity mismatches.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -32,7 +34,9 @@ Currently implemented:
 - bounded local evidence artifacts, a portable manifest, integrity verification, and an
   evidence-gated conversion from browser outcomes to `VerificationResult` objects; and
 - a complete Plan v2 CLI flow with bounded application lifecycle, TCP readiness, real environment
-  metadata, JSON/text receipts, deterministic exit codes, and direct-child cleanup.
+  metadata, JSON/text receipts, deterministic exit codes, and direct-child cleanup; and
+- receipt v2 with Playwright and read-only Git provenance metadata, an exact-byte evidence-manifest
+  digest, post-snapshot plan-drift warnings, and read-only run-directory inspection.
 
 The CLI executes the supplied application argv locally, without a shell, and gives every criterion a
 fresh browser context. Artifacts live beneath a caller-supplied run directory using portable
@@ -69,6 +73,17 @@ agentverify verify --plan examples/greeting.plan.json --base-url http://127.0.0.
 The successful demo prints paths to `receipt.txt`, `receipt.json`, and
 `evidence-manifest.json`, then exits after terminating the sample application. The run directory
 must be nonexistent or empty; AgentVerify never overwrites a prior run.
+
+Inspect the completed bundle without rerunning the application or Chromium:
+
+```console
+agentverify inspect --run-dir .agentverify/demo-run
+```
+
+A valid receipt-v2 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
+input exits `2`; a manifest-binding mismatch or missing/corrupt evidence emits an integrity warning
+and exits `3`. Inspection never rewrites evidence or converts an integrity problem into an
+application `FAIL`.
 
 Exit codes are stable: `0` is `PASS`, `1` is verification `FAIL`, `2` is invalid invocation/input,
 and `3` is `UNKNOWN` or incomplete verification. The readiness timeout defaults to 10,000 ms and
@@ -161,6 +176,26 @@ data or browser state.
 Artifacts and `evidence-manifest.json` are retained under the caller-supplied run root; retention and
 deletion are currently the caller's responsibility. Manifest SHA-256 values detect byte changes but
 are integrity indicators, not signatures, authentication, or cryptographic attestation.
+
+Receipt v2 records the SHA-256 of the exact persisted manifest bytes. This detects accidental
+modification, stale or partially copied files, and unsynchronized artifact replacement when the
+receipt is trusted. It does not establish authenticity: an attacker able to modify the receipt,
+manifest, and artifacts can recompute all unkeyed hashes consistently.
+
+Git provenance is captured read-only from the run's current working directory using bounded Git
+commands. AgentVerify remains usable when Git is absent or the directory is outside a repository.
+When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify the verified
+source bytes. M7 neither creates/switches worktrees nor verifies an arbitrary requested revision.
+
+The plan object loaded before execution remains the authoritative frozen snapshot. After run
+finalization AgentVerify canonically reloads the original plan path; a semantic change, deletion, or
+invalid replacement produces a warning while preserving the receipt digest and verdict for the
+frozen snapshot. Formatting-only equivalent rewrites do not warn.
+
+Equivalent maintained runs are expected to agree on deterministic verification semantics such as
+plan digest, criterion order/verdict/reason, tool/source metadata, and browser-observation content.
+Complete directories need not be byte-identical: UTC capture times, runtime-selected ports in
+process logs, their artifact digests, and the resulting manifest digest are intentionally dynamic.
 
 ## Run directory
 
