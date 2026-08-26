@@ -24,6 +24,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: docker version
       - run: docker pull python:3.12-slim
+      - run: docker image inspect python:3.12-slim --format '{{.Id}}'
       - run: pytest
       - run: ruff check .
       - run: mypy src tests

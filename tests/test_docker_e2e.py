@@ -424,7 +424,7 @@ while True:
         assert host_config["PortBindings"][f"{port}/tcp"] == [
             {"HostIp": "127.0.0.1", "HostPort": str(port)}
         ]
-        active_publication = container["NetworkSettings"]["Ports"][f"{port}/tcp"]
+        active_publication = container["NetworkSettings"]["Ports"].get(f"{port}/tcp")
         if application.port_delivery == "docker":
             assert active_publication == [
                 {"HostIp": "127.0.0.1", "HostPort": str(port)}
