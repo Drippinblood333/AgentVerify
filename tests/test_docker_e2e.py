@@ -69,14 +69,14 @@ def docker_executable() -> str:
         raise AssertionError("unreachable")
     version = docker_cli(
         docker,
-        ("version", "--format", "{{.Server.Version}}\t{{.Server.Os}}"),
+        ("version", "--format", "{{.Server.Version}}"),
     )
     if version.returncode != 0:
         unavailable("real Docker tests require a reachable Docker daemon")
-    fields = version.stdout.strip().split("\t")
-    if len(fields) != 2 or fields[1].lower() != "linux":
+    server_os = docker_cli(docker, ("info", "--format", "{{.OSType}}"))
+    if server_os.returncode != 0 or server_os.stdout.strip().lower() != "linux":
         unavailable("real Docker tests require Linux-container mode")
-    match = re.match(r"^(\d+)(?:\.|$)", fields[0])
+    match = re.match(r"^(\d+)(?:\.|$)", version.stdout.strip())
     if match is None or int(match.group(1)) < 28:
         unavailable("real Docker tests require Docker Engine server 28+")
     image = docker_cli(docker, ("image", "inspect", DOCKER_IMAGE))

@@ -62,9 +62,11 @@ def install_fake_docker(
             return result(
                 command,
                 returncode=daemon_returncode,
-                stdout=f"{server_version}\t{server_os}\n",
+                stdout=f"{server_version}\n",
                 stderr="daemon unavailable" if daemon_returncode else "",
             )
+        if command[1] == "info":
+            return result(command, stdout=f"{server_os}\n")
         if command[1:3] == ("image", "inspect"):
             payload = [{"Id": image_id, "Config": {"Volumes": volumes}}]
             return result(
@@ -110,8 +112,9 @@ def test_preflight_resolves_local_image_and_inspects_supported_linux_server(
             "/usr/bin/docker",
             "version",
             "--format",
-            "{{.Server.Version}}\t{{.Server.Os}}",
+            "{{.Server.Version}}",
         ),
+        ("/usr/bin/docker", "info", "--format", "{{.OSType}}"),
         (
             "/usr/bin/docker",
             "context",

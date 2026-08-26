@@ -90,19 +90,18 @@ def preflight_docker_isolation(
             docker_executable,
             "version",
             "--format",
-            "{{.Server.Version}}\t{{.Server.Os}}",
+            "{{.Server.Version}}",
         )
     )
     if version_result.returncode != 0:
         raise DockerIsolationConfigurationError(
             "Docker daemon is unavailable; start a reachable local Docker daemon"
         )
-    version_fields = version_result.stdout.strip().split("\t")
-    if len(version_fields) != 2 or not version_fields[0] or not version_fields[1]:
+    server_version = version_result.stdout.strip()
+    if not server_version:
         raise DockerIsolationConfigurationError(
             "Docker server metadata could not be inspected reliably"
         )
-    server_version, server_os = version_fields
     version_match = re.match(r"^(\d+)(?:\.|$)", server_version)
     if version_match is None:
         raise DockerIsolationConfigurationError(
@@ -113,7 +112,14 @@ def preflight_docker_isolation(
             "Docker isolation requires Docker Engine server version 28 or newer; "
             f"found {server_version}"
         )
-    if server_os.lower() != "linux":
+    os_result = _run_cli(
+        (docker_executable, "info", "--format", "{{.OSType}}")
+    )
+    if os_result.returncode != 0 or not os_result.stdout.strip():
+        raise DockerIsolationConfigurationError(
+            "Docker server operating-system metadata could not be inspected reliably"
+        )
+    if os_result.stdout.strip().lower() != "linux":
         raise DockerIsolationConfigurationError(
             "Docker isolation requires the server to use Linux containers"
         )
