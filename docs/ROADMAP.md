@@ -132,6 +132,13 @@ sandboxing, source mutation, worktree management, or requested-revision verifica
 
 **Outcome:** Add one documented opt-in isolation route for untrusted local application commands, without building a remote execution platform.
 
+**Implemented boundary:** M8 retains direct execution as the default and adds one optional,
+locally preflighted Docker CLI route for Linux containers. It pins an already-local image ID,
+applies the fixed `agentverify-docker-baseline-v1` filesystem/network/environment/privilege/resource
+profile, cleans exact managed resources, and records direct or Docker execution in receipt v3. It
+does not claim resistance to Docker/runtime/kernel escape, pull/build images, mutate source, create
+worktrees, select revisions, or provide remote execution.
+
 **Done when:**
 
 - The selected local container strategy has explicit filesystem, network, environment, resource, and cleanup boundaries.

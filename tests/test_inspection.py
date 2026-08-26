@@ -16,6 +16,7 @@ from agentverify.provenance import SourceProvenance
 from agentverify.receipt import (
     EnvironmentMetadataV2,
     ProofReceiptV2,
+    ProofReceiptV3,
     build_receipt_v2,
     load_receipt,
     render_receipt_json,
@@ -116,6 +117,25 @@ def test_intact_v2_run_inspects_successfully(tmp_path: Path) -> None:
 
     assert inspection.receipt.overall_verdict is Verdict.PASS
     assert inspection.receipt.schema_version == 2
+
+
+def test_intact_v3_run_uses_the_same_evidence_authority(tmp_path: Path) -> None:
+    run_dir = make_run(tmp_path / "run-v3")
+    receipt = load_receipt(run_dir / "receipt.json")
+    assert isinstance(receipt, ProofReceiptV2)
+    payload = receipt.model_dump()
+    payload["schema_version"] = 3
+    payload["execution"] = {"isolation_mode": "none"}
+    receipt_v3 = ProofReceiptV3.model_validate(payload)
+    (run_dir / "receipt.json").write_text(
+        render_receipt_json(receipt_v3),
+        encoding="utf-8",
+    )
+
+    inspection = inspect_run_directory(run_dir)
+
+    assert inspection.receipt.overall_verdict is Verdict.PASS
+    assert inspection.receipt.schema_version == 3
 
 
 def test_cli_inspect_reports_valid_run(tmp_path: Path, capsys: CaptureFixture[str]) -> None:

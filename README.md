@@ -3,8 +3,9 @@
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
 > **Status: early development.** AgentVerify can run one complete local verification flow, record
-> source provenance when Git is available, bind receipt v2 to persisted evidence, and inspect an
-> existing run for integrity mismatches.
+> source provenance when Git is available, bind versioned receipts to persisted evidence, inspect
+> an existing run for integrity mismatches, and optionally run an application through a controlled
+> local Docker isolation baseline.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -36,7 +37,10 @@ Currently implemented:
 - a complete Plan v2 CLI flow with bounded application lifecycle, TCP readiness, real environment
   metadata, JSON/text receipts, deterministic exit codes, and direct-child cleanup; and
 - receipt v2 with Playwright and read-only Git provenance metadata, an exact-byte evidence-manifest
-  digest, post-snapshot plan-drift warnings, and read-only run-directory inspection.
+  digest, post-snapshot plan-drift warnings, and read-only run-directory inspection; and
+- an opt-in Docker isolation baseline with fixed filesystem, environment, privilege, network,
+  resource, and cleanup controls, plus receipt v3 execution metadata for both direct and Docker
+  runs.
 
 The CLI executes the supplied application argv locally, without a shell, and gives every criterion a
 fresh browser context. Artifacts live beneath a caller-supplied run directory using portable
@@ -74,13 +78,75 @@ The successful demo prints paths to `receipt.txt`, `receipt.json`, and
 `evidence-manifest.json`, then exits after terminating the sample application. The run directory
 must be nonexistent or empty; AgentVerify never overwrites a prior run.
 
+Direct execution remains the default: omitting `--isolation` is equivalent to
+`--isolation none`. It has the same M7 lifecycle and endpoint-attribution behavior and does not
+require Docker. The real verification path now emits receipt v3 with `isolation_mode: "none"`.
+
+## Optional Docker isolation baseline
+
+Docker mode is explicit and requires Docker Engine server 28 or newer in Linux-container mode over
+a local Unix socket or named pipe; remote Docker endpoints are rejected. The selected image must already exist locally; AgentVerify inspects it, records its concrete local
+`sha256:` image ID, runs that ID with `--pull never`, and never pulls or builds an image. If needed,
+the user or CI can make the maintained image available first:
+
+```console
+docker pull python:3.12-slim
+```
+
+Choose a run directory outside the current source root, then run the same plan and application:
+
+```console
+agentverify verify \
+  --plan examples/greeting.plan.json \
+  --base-url http://127.0.0.1:8765 \
+  --run-dir ../agentverify-runs/greeting-docker \
+  --isolation docker \
+  --isolation-image python:3.12-slim \
+  --app-command python examples/greeting_app.py --host 0.0.0.0 --port 8765
+```
+
+`--app-command` remains explicit argv and must remain the final AgentVerify option. Docker mode
+requires an exact `127.0.0.1` base-url host and explicit TCP port. The application inside the
+container must listen on `0.0.0.0` at that same port; AgentVerify publishes only that port to the
+host's `127.0.0.1`.
+
+The fixed `agentverify-docker-baseline-v1` profile:
+
+- mounts the resolved current working directory at `/workspace` read-only and uses it as the
+  container working directory;
+- rejects a filesystem/drive-root source, an unsafe comma-delimited mount path, an in-source run
+  directory, and images declaring Docker `VOLUME` paths;
+- uses a read-only container root filesystem with only a private 64 MiB `/tmp` tmpfs writable and
+  sets `HOME=/tmp`;
+- runs as numeric user `65534:65534`, drops all Linux capabilities, enables
+  `no-new-privileges`, disables the image healthcheck, and explicitly replaces the image entrypoint
+  with the reviewed application executable;
+- forwards no arbitrary host environment variables or secrets and mounts neither host home paths
+  nor the Docker socket;
+- applies 512 MiB memory, 1.0 CPU, 256 PID, 64 MiB `/dev/shm`, and 64 MiB `/tmp` limits; and
+- creates one uniquely named internal bridge network and one container, then stops, inspects,
+  force-removes when necessary, and confirms removal of those exact managed resources.
+
+This is an optional Docker isolation baseline that reduces host exposure. It is not a VM or proof
+that arbitrary malicious code cannot affect trusted infrastructure. Docker Engine or Docker
+Desktop, the Linux VM/kernel/runtime, and the host remain trusted. An internal Docker bridge is
+intended to remove normal external connectivity, but runtime-specific Docker host/gateway services
+may remain reachable. M8 provides no per-destination egress rules, host-firewall management, proxy
+allowlists, DNS filtering, cloud-metadata firewall, image signatures, registry authenticity,
+attestation, or remote execution.
+
+Invalid or unsupported Docker requests fail with exit `2` before application startup and never
+downgrade to direct execution. Failures after a valid preflight, including early container exit,
+readiness timeout, Docker runtime loss, or unconfirmed cleanup, produce reviewable incomplete
+output and exit `3` unless a real browser assertion `FAIL` was already established.
+
 Inspect the completed bundle without rerunning the application or Chromium:
 
 ```console
 agentverify inspect --run-dir .agentverify/demo-run
 ```
 
-A valid receipt-v2 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
+A valid receipt-v2 or receipt-v3 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
 input exits `2`; a manifest-binding mismatch or missing/corrupt evidence emits an integrity warning
 and exits `3`. Inspection never rewrites evidence or converts an integrity problem into an
 application `FAIL`.
@@ -177,7 +243,7 @@ Artifacts and `evidence-manifest.json` are retained under the caller-supplied ru
 deletion are currently the caller's responsibility. Manifest SHA-256 values detect byte changes but
 are integrity indicators, not signatures, authentication, or cryptographic attestation.
 
-Receipt v2 records the SHA-256 of the exact persisted manifest bytes. This detects accidental
+Receipt v2 and v3 record the SHA-256 of the exact persisted manifest bytes. This detects accidental
 modification, stale or partially copied files, and unsynchronized artifact replacement when the
 receipt is trusted. It does not establish authenticity: an attacker able to modify the receipt,
 manifest, and artifacts can recompute all unkeyed hashes consistently.
@@ -186,6 +252,13 @@ Git provenance is captured read-only from the run's current working directory us
 commands. AgentVerify remains usable when Git is absent or the directory is outside a repository.
 When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify the verified
 source bytes. M7 neither creates/switches worktrees nor verifies an arbitrary requested revision.
+
+Receipt v3 preserves receipt-v2 environment, provenance, manifest binding, criteria, and verdict
+semantics while adding structured execution metadata. Direct runs record `isolation_mode: "none"`.
+Docker runs additionally record the fixed profile name, Docker server version, supplied mutable
+image reference, and resolved local image ID. The ID identifies the exact local image used; it is
+not a registry signature, provenance attestation, or authenticity claim. Historical receipt v1 and
+v2 files remain loadable, and receipt-v2 bundles remain inspectable.
 
 The plan object loaded before execution remains the authoritative frozen snapshot. After run
 finalization AgentVerify canonically reloads the original plan path; a semantic change, deletion, or
@@ -225,6 +298,13 @@ deletion remain the user's responsibility.
   artifact; increase `--startup-timeout-ms` only when startup legitimately needs more time.
 - **Run directory already contains files:** choose a new directory or explicitly empty the intended
   directory before starting. AgentVerify will not overwrite it.
+- **Docker is unavailable or too old:** Docker mode requires a reachable Docker Engine 28+ server
+  using Linux containers. Direct mode remains available without Docker.
+- **Docker image is missing:** pull or build the selected image explicitly before verification;
+  AgentVerify does not pull it.
+- **Docker run directory is rejected:** choose a new or empty path outside the current source root.
+- **Docker application never becomes ready:** ensure it binds `0.0.0.0` at the exact port used in
+  the `127.0.0.1` base URL.
 
 The first release is deliberately limited to **locally runnable web applications** and a CLI-first experience. It will not be a hosted platform, coding-agent orchestrator, team dashboard, or general-purpose mobile and desktop testing system.
 

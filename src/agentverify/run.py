@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Literal
 
 from agentverify import __version__
 from agentverify.application import (
@@ -34,12 +35,21 @@ from agentverify.inspection import (
     inspect_run_directory,
     sha256_file,
 )
+from agentverify.isolation import (
+    DOCKER_PROFILE_NAME,
+    DockerIsolationConfigurationError,
+    DockerIsolationPreflight,
+    DockerManagedApplication,
+    preflight_docker_isolation,
+)
 from agentverify.plan import PlanError, load_plan, plan_digest
 from agentverify.provenance import SourceProvenance, capture_source_provenance
 from agentverify.receipt import (
+    DirectExecutionMetadata,
+    DockerExecutionMetadata,
     EnvironmentMetadataV2,
-    ProofReceiptV2,
-    build_receipt_v2,
+    ProofReceiptV3,
+    build_receipt_v3,
     render_receipt_json,
     render_receipt_text,
 )
@@ -61,7 +71,7 @@ class RunOperationalError(Exception):
 class LocalVerificationOutcome:
     """Completed local orchestration outputs and their authoritative receipt."""
 
-    receipt: ProofReceiptV2
+    receipt: ProofReceiptV3
     run_root: Path
     receipt_json_path: Path
     receipt_text_path: Path
@@ -72,8 +82,17 @@ class LocalVerificationOutcome:
 _UNSUPPORTED_EVIDENCE_REASON = (
     "Conclusive browser outcome could not be supported by trustworthy durable evidence"
 )
-_BASE_LIMITATIONS = (
+_DIRECT_LIMITATIONS = (
     "Local application execution is not sandboxed and uses the current user's permissions.",
+    "Textual redaction is best-effort; rich browser artifacts may contain sensitive data.",
+)
+_DOCKER_LIMITATIONS = (
+    "The optional Docker isolation baseline reduces host exposure; Docker Engine, its "
+    "Linux VM/kernel/runtime, and the host remain trusted infrastructure.",
+    "The internal Docker bridge is intended to remove normal external connectivity but may "
+    "still permit Docker-managed host or gateway communication depending on the runtime.",
+    "The Docker isolation baseline provides no image signature, registry authenticity, "
+    "attestation, remote execution, or universal host-network separation guarantee.",
     "Textual redaction is best-effort; rich browser artifacts may contain sensitive data.",
 )
 _PROCESS_LOG_TRUNCATION = "Process output was truncated to the configured evidence limit."
@@ -181,13 +200,27 @@ def verify_local_application(
     app_command: Sequence[str],
     startup_timeout_ms: int = 10_000,
     plan_source_path: Path | None = None,
+    isolation_mode: Literal["none", "docker"] = "none",
+    isolation_image: str | None = None,
 ) -> LocalVerificationOutcome:
     """Run the complete local lifecycle, evidence, receipt, and integrity flow."""
     command = _validate_run_configuration(
         app_command=app_command,
         startup_timeout_ms=startup_timeout_ms,
+        isolation_mode=isolation_mode,
+        isolation_image=isolation_image,
     )
     verifier = BrowserVerifier(base_url)
+    docker_preflight: DockerIsolationPreflight | None = None
+    if isolation_mode == "docker":
+        try:
+            docker_preflight = preflight_docker_isolation(
+                image_reference=isolation_image or "",
+                base_url=base_url,
+                run_dir=run_dir,
+            )
+        except DockerIsolationConfigurationError as error:
+            raise RunConfigurationError(str(error)) from error
     if endpoint_accepts_connection(base_url):
         raise RunConfigurationError(
             "configured application endpoint is already accepting connections; "
@@ -197,9 +230,11 @@ def verify_local_application(
     source_provenance = capture_source_provenance()
     run_root = _prepare_run_directory(run_dir)
     store = EvidenceStore(run_root)
-    limitations = list(_BASE_LIMITATIONS)
+    limitations = list(
+        _DOCKER_LIMITATIONS if isolation_mode == "docker" else _DIRECT_LIMITATIONS
+    )
     _append_provenance_limitation(limitations, source_provenance)
-    process: ManagedApplication | None = None
+    process: ManagedApplication | DockerManagedApplication | None = None
     executions: tuple[BrowserExecutionResult, ...] | None = None
     operational_reason: str | None = None
     lifecycle_reliable = False
@@ -209,12 +244,23 @@ def verify_local_application(
 
     try:
         try:
-            process = ManagedApplication.start(
-                command,
-                max_log_bytes=store.limits.max_text_artifact_size_bytes,
+            if docker_preflight is None:
+                process = ManagedApplication.start(
+                    command,
+                    max_log_bytes=store.limits.max_text_artifact_size_bytes,
+                )
+            else:
+                process = DockerManagedApplication.start(
+                    docker_preflight,
+                    command,
+                    max_log_bytes=store.limits.max_text_artifact_size_bytes,
+                )
+        except ApplicationStartError as error:
+            operational_reason = (
+                "Application executable could not start"
+                if docker_preflight is None
+                else str(error)
             )
-        except ApplicationStartError:
-            operational_reason = "Application executable could not start"
         else:
             try:
                 readiness = process.wait_for_readiness(
@@ -311,7 +357,17 @@ def verify_local_application(
         and not cleanup_failed
         and all(result.verdict is not Verdict.UNKNOWN for result in results)
     )
-    receipt = build_receipt_v2(
+    execution = (
+        DirectExecutionMetadata()
+        if docker_preflight is None
+        else DockerExecutionMetadata(
+            isolation_profile=DOCKER_PROFILE_NAME,
+            docker_server_version=docker_preflight.docker_server_version,
+            image_reference=docker_preflight.image_reference,
+            image_id=docker_preflight.image_id,
+        )
+    )
+    receipt = build_receipt_v3(
         plan=plan,
         results=results,
         completed=completed,
@@ -323,6 +379,7 @@ def verify_local_application(
         ),
         source_provenance=source_provenance,
         evidence_manifest_digest=manifest_digest,
+        execution=execution,
         limitations=tuple(dict.fromkeys(limitations)),
     )
     receipt_json_path = run_root / "receipt.json"
@@ -397,6 +454,8 @@ def _validate_run_configuration(
     *,
     app_command: Sequence[str],
     startup_timeout_ms: int,
+    isolation_mode: Literal["none", "docker"],
+    isolation_image: str | None,
 ) -> tuple[str, ...]:
     if type(startup_timeout_ms) is not int or not 100 <= startup_timeout_ms <= 60_000:
         raise RunConfigurationError("startup timeout must be from 100 to 60000 milliseconds")
@@ -405,6 +464,14 @@ def _validate_run_configuration(
         raise RunConfigurationError("application command must not be empty")
     if any("\x00" in argument for argument in command):
         raise RunConfigurationError("application command arguments must not contain NUL bytes")
+    if isolation_mode not in {"none", "docker"}:
+        raise RunConfigurationError("isolation mode must be none or docker")
+    if isolation_mode == "docker" and isolation_image is None:
+        raise RunConfigurationError("Docker isolation requires --isolation-image")
+    if isolation_mode == "none" and isolation_image is not None:
+        raise RunConfigurationError(
+            "--isolation-image is only valid with --isolation docker"
+        )
     return command
 
 

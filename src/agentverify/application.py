@@ -66,7 +66,7 @@ class ShutdownResult:
     force_killed: bool
 
 
-class _BoundedOutputDrain:
+class BoundedOutputDrain:
     """Drain one merged pipe forever while retaining only a bounded prefix."""
 
     _TRUNCATION_MARKER = b"\n[agentverify: process output truncated]\n"
@@ -142,7 +142,7 @@ class ManagedApplication:
     def __init__(
         self,
         process: subprocess.Popen[bytes],
-        drain: _BoundedOutputDrain,
+        drain: BoundedOutputDrain,
         reader: threading.Thread,
     ) -> None:
         self._process = process
@@ -183,7 +183,7 @@ class ManagedApplication:
             process.wait()
             raise ApplicationStartError("application output pipe could not be created")
 
-        drain = _BoundedOutputDrain(max_bytes=max_log_bytes)
+        drain = BoundedOutputDrain(max_bytes=max_log_bytes)
         reader = threading.Thread(
             target=drain.drain,
             args=(process.stdout,),

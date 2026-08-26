@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from pytest import CaptureFixture
 
 from agentverify import __version__
 from agentverify.cli import EXIT_UNKNOWN, EXIT_USAGE, main
+from agentverify.isolation import DockerIsolationPreflight
 
 VALID_V1_PLAN = {
     "schema_version": 1,
@@ -59,7 +61,14 @@ def verify_args(
     run_dir: Path,
     app_command: list[str],
     base_url: str = "http://127.0.0.1:8765",
+    isolation: str | None = None,
+    isolation_image: str | None = None,
 ) -> list[str]:
+    isolation_args: list[str] = []
+    if isolation is not None:
+        isolation_args.extend(("--isolation", isolation))
+    if isolation_image is not None:
+        isolation_args.extend(("--isolation-image", isolation_image))
     return [
         "verify",
         "--plan",
@@ -68,6 +77,7 @@ def verify_args(
         base_url,
         "--run-dir",
         str(run_dir),
+        *isolation_args,
         "--app-command",
         *app_command,
     ]
@@ -364,3 +374,188 @@ def test_application_start_failure_produces_unknown_receipt_without_traceback(
     assert (run_dir / "receipt.txt").is_file()
     assert (run_dir / "evidence-manifest.json").is_file()
     assert_no_traceback(captured.out, captured.err)
+
+
+def test_docker_isolation_requires_image_and_never_starts_application(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+
+    exit_code = main(
+        verify_args(
+            plan=plan,
+            run_dir=tmp_path / "run",
+            app_command=marker_command(marker),
+            isolation="docker",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "requires --isolation-image" in captured.err
+    assert not marker.exists()
+
+
+def test_isolation_image_is_rejected_in_direct_mode_without_startup(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+
+    exit_code = main(
+        verify_args(
+            plan=plan,
+            run_dir=tmp_path / "run",
+            app_command=marker_command(marker),
+            isolation_image="python:3.12-slim",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "only valid with --isolation docker" in captured.err
+    assert not marker.exists()
+
+
+def test_docker_isolation_unavailable_is_exit_2_before_startup(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+    monkeypatch.setattr("agentverify.isolation.shutil.which", lambda executable: None)
+
+    exit_code = main(
+        verify_args(
+            plan=plan,
+            run_dir=tmp_path / "run",
+            app_command=marker_command(marker),
+            isolation="docker",
+            isolation_image="python:3.12-slim",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "Docker executable is unavailable" in captured.err
+    assert not marker.exists()
+
+
+def test_docker_run_directory_inside_source_is_exit_2_before_docker_lookup(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+    looked_up = False
+
+    def lookup(_: str) -> str | None:
+        nonlocal looked_up
+        looked_up = True
+        return None
+
+    monkeypatch.setattr("agentverify.isolation.shutil.which", lookup)
+    exit_code = main(
+        verify_args(
+            plan=plan,
+            run_dir=Path.cwd() / ".agentverify-m8-must-not-create",
+            app_command=marker_command(marker),
+            isolation="docker",
+            isolation_image="python:3.12-slim",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "outside the source root" in captured.err
+    assert not looked_up
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["http://localhost:8765", "http://[::1]:8765", "http://127.0.0.1"],
+)
+def test_docker_base_url_boundary_is_exit_2_before_startup(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    base_url: str,
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+
+    exit_code = main(
+        verify_args(
+            plan=plan,
+            run_dir=tmp_path / "run",
+            app_command=marker_command(marker),
+            base_url=base_url,
+            isolation="docker",
+            isolation_image="python:3.12-slim",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "Docker isolation base URL" in captured.err
+    assert not marker.exists()
+
+
+def test_docker_preexisting_endpoint_is_rejected_before_container_start(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = tmp_path / "plan.json"
+    write_plan(plan)
+    marker = tmp_path / "started.txt"
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = int(listener.getsockname()[1])
+        preflight = DockerIsolationPreflight(
+            docker_executable="docker",
+            docker_server_version="28.3.1",
+            image_reference="python:3.12-slim",
+            image_id=f"sha256:{'a' * 64}",
+            source_root=Path.cwd(),
+            port=port,
+        )
+        monkeypatch.setattr(
+            "agentverify.run.preflight_docker_isolation",
+            lambda **kwargs: preflight,
+        )
+
+        def unexpected_start(*args: object, **kwargs: object) -> None:
+            raise AssertionError("container startup must not occur")
+
+        monkeypatch.setattr(
+            "agentverify.run.DockerManagedApplication.start", unexpected_start
+        )
+        run_dir = tmp_path / "run"
+        exit_code = main(
+            verify_args(
+                plan=plan,
+                run_dir=run_dir,
+                app_command=marker_command(marker),
+                base_url=f"http://127.0.0.1:{port}",
+                isolation="docker",
+                isolation_image="python:3.12-slim",
+            )
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "already accepting connections" in captured.err
+    assert not run_dir.exists()
+    assert not marker.exists()

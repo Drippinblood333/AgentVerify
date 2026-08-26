@@ -81,6 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="bounded TCP readiness timeout from 100 to 60000 ms (default: 10000)",
     )
     verify_parser.add_argument(
+        "--isolation",
+        choices=("none", "docker"),
+        default="none",
+        help="optional application isolation route (default: none)",
+    )
+    verify_parser.add_argument(
+        "--isolation-image",
+        help="existing local Linux image required by --isolation docker",
+    )
+    verify_parser.add_argument(
         "--app-command",
         required=True,
         nargs=argparse.REMAINDER,
@@ -118,6 +128,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 app_command=args.app_command,
                 startup_timeout_ms=args.startup_timeout_ms,
                 plan_source_path=args.plan,
+                isolation_mode=args.isolation,
+                isolation_image=args.isolation_image,
             )
         except KeyboardInterrupt:
             print("agentverify: verification interrupted", file=sys.stderr)
