@@ -4,11 +4,11 @@
 
 The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
-M0 defined these boundaries and contracts. M8 composes versioned Plan v2 execution, bounded direct
+M0 defined these boundaries and contracts. M9 composes versioned Plan v2 execution, bounded direct
 and opt-in Docker application lifecycles, deterministic browser verification, durable evidence
-authority, real verification results, receipt v3 execution metadata, read-only source provenance,
-and post-run integrity inspection into the minimum complete CLI flow. Worktrees and release
-hardening remain later milestones.
+authority, real verification results, receipt v4 source-selection metadata, read-only current-source
+provenance, optional disposable Git worktrees, and post-run integrity inspection into the minimum
+complete CLI flow. Release hardening remains a later milestone.
 
 ## System context and trust boundary
 
@@ -27,7 +27,8 @@ adds immutable `BrowserAcceptanceCriterion` and `BrowserProcedure` models. M3's 
 `VerificationResult` and receipt-v1 contract remain unchanged. M5 adds immutable
 `EvidenceArtifact` and `EvidenceManifest` models without adding evidence policy to either plan
 version. M7 adds receipt v2 around the same verdict semantics. M8 adds receipt v3 with explicit
-direct or Docker execution metadata while preserving those semantics.
+direct or Docker execution metadata. M9 adds receipt v4 with discriminated current/disposable source
+selection and repository-relative-or-external caller-plan provenance while preserving those semantics.
 
 ### Task
 
@@ -63,7 +64,11 @@ metadata: every new run records `isolation_mode`, while Docker runs also record 
 profile, Docker server version, supplied image reference, and resolved local image ID. All versions
 retain the same criteria, completion, and aggregate verdict semantics. The image ID identifies the
 actual local image used without claiming registry authenticity, signature verification, or
-attestation.
+attestation. Receipt v4 preserves every v3 field and additionally records whether the caller source
+or a disposable worktree was used. Disposable selection records the requested selector, one frozen
+exact commit, caller HEAD and dirty state, post-run source dirty state, and exact cleanup confirmation.
+Plan-source metadata records a POSIX repository-relative caller path with caller revision/dirty state
+or only `kind: external`; it never serializes an external absolute path.
 
 The deterministic aggregate rule is:
 
@@ -128,7 +133,7 @@ only. This adapter never decides a verdict.
 `isolation.py` uses only stdlib subprocess calls, explicit argv, `shell=False`, and bounded
 timeouts. Docker validation runs only when `--isolation docker` is selected. Preflight requires a
 reachable Docker Engine server 28+ using Linux containers, an exact `127.0.0.1` base URL with an
-explicit port, a local Unix-socket or named-pipe Docker endpoint, a safely representable non-root current working directory, an out-of-source run
+explicit port, a local Unix-socket or named-pipe Docker endpoint, a safely representable non-root selected source directory, an out-of-source run
 directory, and an already-local image with a valid `sha256:` ID and no declared `VOLUME` paths. It
 never silently falls back to direct execution, pulls an image, or accepts raw Docker arguments.
 
@@ -172,7 +177,9 @@ that network, so untrusted page content may still initiate browser-side third-pa
 
 ### Local verification orchestration
 
-The local verification use case first validates the loopback origin and probes its TCP endpoint before creating
+The CLI captures the invocation root once and resolves the caller plan and run-directory paths
+against it. The caller plan is loaded and frozen before any disposable worktree exists; later drift
+checks reread that original caller path. The local verification use case validates the loopback origin and probes its TCP endpoint before creating
 permanent run output or starting the command. An endpoint that is already accepting connections is
 invalid run configuration; requiring a closed-to-accepting transition prevents obvious stale-service
 attribution but does not prove PID-level port ownership. The use case then preflights a new or empty
@@ -183,9 +190,14 @@ browser execution produce ordered `UNKNOWN` results without fabricated browser o
 Application exit or interruption marks the run incomplete while preserving any real `FAIL` already
 established.
 
+Application cleanup precedes disposable-source inspection. When revision mode is active,
+orchestration then checks porcelain status, removes and confirms the exact worktree registration and
+path, and only afterward finalizes the manifest, results, and receipt. A dirty disposable source or
+unconfirmed removal makes the run incomplete unless an established `FAIL` dominates.
+
 Receipt construction remains pure and accepts either supported plan version through their shared
 task and criterion snapshots. The real CLI path emitted receipt v2 through M7; M8 changes new real
-runs to receipt v3 with explicit direct/Docker execution metadata after hashing the exact persisted
+runs to receipt v3; M9 changes new real runs to receipt v4 after hashing the exact persisted
 manifest bytes. It then atomically creates `receipt.json` and `receipt.txt` and performs the same
 read-only integrity inspection exposed by the CLI. Plan v1 golden receipt bytes/schema version 1
 and focused receipt-v2 loading/rendering remain unchanged. A final canonical reload of the original
@@ -193,14 +205,28 @@ plan source warns about post-snapshot semantic drift without changing the frozen
 
 ### Source provenance and run inspection
 
-The Git adapter uses bounded stdlib subprocess calls with explicit argv and `shell=False`. It reads
-HEAD and porcelain worktree status from the current directory but never stores an absolute
-repository path, diff, or status body. Git absence and non-repository directories are explicit
-unavailable metadata and do not alter the verdict. A dirty worktree means HEAD alone does not
-identify the verified filesystem bytes. The adapter does not create or switch worktrees and does
-not verify a requested revision.
+The Git adapters use bounded stdlib subprocess calls with explicit argv, `shell=False`, disabled
+stdin prompts, and no network operation. Current mode reads HEAD and porcelain status but never
+stores an absolute repository path, diff, or status body. Git absence and non-repository directories
+remain explicit unavailable metadata and do not alter the verdict.
 
-Run inspection is read-only. It loads receipt v2 or v3, compares its manifest digest to the current exact
+When `--revision` is present, `worktree.py` verifies the invocation is in a local repository,
+resolves the option-safe selector once to a lowercase 40-hex commit, captures caller HEAD/dirty
+state, and rejects any recursive tree entry with mode `160000`. It creates one detached worktree
+under a system-temporary parent using an empty hooks directory, verifies exact HEAD and clean status,
+and passes only the frozen SHA to `git worktree add`. Direct execution receives the selected root as
+an explicit subprocess `cwd`; Docker receives the same explicit source root. Cleanup addresses only
+that registration and never runs global `worktree prune`. The adapter never fetches, pulls, clones,
+checks out, resets, stages, or cleans the caller worktree.
+
+Creating the disposable worktree temporarily updates Git's administrative worktree registration,
+but the caller HEAD, index, staged/unstaged changes, untracked files, and working files are not part
+of the selected execution root and are not modified. The local Git executable and local Git
+configuration are trusted. Redirecting hooks to an empty directory does not sandbox arbitrary
+checkout filters or other locally configured Git behavior, and AgentVerify does not hydrate or
+otherwise manage Git LFS objects.
+
+Run inspection is read-only. It loads receipt v2, v3, or v4, compares its manifest digest to the current exact
 manifest bytes, applies existing artifact path/size/SHA-256 checks, and validates receipt evidence
 references and criterion associations. It does not rerun Chromium, replay criteria, repair files, or
 rewrite a historical verdict. These unkeyed digests are integrity indicators, not authentication:
@@ -209,11 +235,12 @@ an attacker controlling the entire bundle can recompute them consistently.
 ### CLI
 
 The only v0.1 user interface and the composition root. It accepts Plan v2, a loopback base URL, an
-empty run directory, a bounded startup timeout, optional `--isolation {none,docker}` and local image
-reference, and a final application argv. Direct mode is the default. It maps the completed
+empty run directory, a bounded startup timeout, optional `--revision`, optional
+`--isolation {none,docker}` and local image reference, and a final application argv. Direct mode and
+current-worktree source selection are the defaults. It maps the completed
 receipt to `0`/`1`/`3` for `PASS`/`FAIL`/`UNKNOWN`, and uses `2` for invalid invocation or input.
 Business rules, browser code, lifecycle state, and receipt aggregation do not live in handlers.
-`inspect --run-dir` returns `0` for an intact v2/v3 bundle, `2` for invalid input or an unsupported
+`inspect --run-dir` returns `0` for an intact v2/v3/v4 bundle, `2` for invalid input or an unsupported
 receipt, and `3` for an integrity warning.
 
 ## Proposed module boundaries
@@ -230,6 +257,7 @@ agentverify/
   run.py             # evidence-authoritative local verification orchestration
   evidence.py        # artifact capture and manifest operations
   provenance.py      # bounded read-only Git source metadata
+  worktree.py        # local revision resolution and exact disposable worktree ownership
   isolation.py       # optional Docker preflight, fixed profile, lifecycle, and cleanup
   inspection.py      # read-only receipt/manifest/artifact integrity checks
   receipt.py         # versioned receipt construction, rendering, and loading

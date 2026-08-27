@@ -27,7 +27,12 @@ from agentverify.isolation import (
     preflight_docker_isolation,
 )
 from agentverify.plan import load_plan, plan_digest
-from agentverify.receipt import DockerExecutionMetadata, ProofReceiptV3, load_receipt
+from agentverify.receipt import (
+    DockerExecutionMetadata,
+    GitWorktreeSourceSelection,
+    ProofReceiptV4,
+    load_receipt,
+)
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 PASS_PLAN = REPOSITORY_ROOT / "examples" / "greeting.plan.json"
@@ -53,6 +58,22 @@ def docker_cli(
         check=False,
         timeout=timeout,
     )
+
+
+def git_cli(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ("git", "-C", str(repo), *args),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
 
 
 @pytest.fixture(scope="module")
@@ -173,9 +194,9 @@ def greeting_container_command(port: int, *extra: str) -> tuple[str, ...]:
     )
 
 
-def load_v3(run_dir: Path) -> ProofReceiptV3:
+def load_v4(run_dir: Path) -> ProofReceiptV4:
     receipt = load_receipt(run_dir / "receipt.json")
-    assert isinstance(receipt, ProofReceiptV3)
+    assert isinstance(receipt, ProofReceiptV4)
     return receipt
 
 
@@ -189,7 +210,7 @@ def browser_observation_bytes(run_dir: Path) -> tuple[bytes, ...]:
     )
 
 
-def test_direct_and_docker_pass_have_stable_semantics_and_v3_inspection(
+def test_direct_and_docker_pass_have_stable_semantics_and_v4_inspection(
     tmp_path: Path,
     capsys: CaptureFixture[str],
     docker_executable: str,
@@ -215,8 +236,8 @@ def test_direct_and_docker_pass_have_stable_semantics_and_v3_inspection(
     )
     docker_output = capsys.readouterr()
 
-    direct_receipt = load_v3(direct_run)
-    docker_receipt = load_v3(docker_run)
+    direct_receipt = load_v4(direct_run)
+    docker_receipt = load_v4(docker_run)
     assert docker_output.err == ""
     assert docker_receipt.overall_verdict is Verdict.PASS
     assert docker_receipt.completed
@@ -237,9 +258,57 @@ def test_direct_and_docker_pass_have_stable_semantics_and_v3_inspection(
     assert main(["inspect", "--run-dir", str(docker_run)]) == EXIT_SUCCESS
     inspected = capsys.readouterr()
     assert "Integrity: OK" in inspected.out
-    assert "Receipt schema: 3" in inspected.out
+    assert "Receipt schema: 4" in inspected.out
     assert not endpoint_accepts_connection(f"http://127.0.0.1:{docker_port}")
     assert managed_resources(docker_executable) == before
+
+
+def test_docker_revision_uses_disposable_selected_source_root(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    docker_executable: str,
+) -> None:
+    before_resources = managed_resources(docker_executable)
+    repo = tmp_path / "revision-repo"
+    repo.mkdir()
+    git_cli(repo, "init")
+    git_cli(repo, "config", "user.name", "AgentVerify Test")
+    git_cli(repo, "config", "user.email", "agentverify@example.invalid")
+    app = repo / "app.py"
+    shutil.copy2(SAMPLE_APP, app)
+    git_cli(repo, "add", "app.py")
+    git_cli(repo, "commit", "-m", "revision A")
+    revision_a = git_cli(repo, "rev-parse", "HEAD")
+    app.write_text(
+        app.read_text(encoding="utf-8").replace('id="message"', 'id="changed"'),
+        encoding="utf-8",
+    )
+    git_cli(repo, "add", "app.py")
+    git_cli(repo, "commit", "-m", "revision B")
+    worktrees_before = git_cli(repo, "worktree", "list", "--porcelain")
+    monkeypatch.chdir(repo)
+    port = unused_tcp_port()
+    run_dir = tmp_path / "docker-revision-run"
+
+    args = docker_verify_args(
+        plan=PASS_PLAN,
+        port=port,
+        run_dir=run_dir,
+        app_command=("python", "app.py", "--host", "0.0.0.0", "--port", str(port)),
+    )
+    app_option = args.index("--app-command")
+    args[app_option:app_option] = ["--revision", revision_a]
+    assert main(args) == EXIT_PASS
+    capsys.readouterr()
+
+    receipt = load_v4(run_dir)
+    assert isinstance(receipt.execution, DockerExecutionMetadata)
+    assert isinstance(receipt.source_selection, GitWorktreeSourceSelection)
+    assert receipt.source_selection.resolved_revision == revision_a
+    assert receipt.source_selection.cleanup_confirmed is True
+    assert git_cli(repo, "worktree", "list", "--porcelain") == worktrees_before
+    assert managed_resources(docker_executable) == before_resources
 
 
 def test_isolated_assertion_fail_remains_fail_and_cleans_resources(
@@ -268,7 +337,7 @@ def test_isolated_assertion_fail_remains_fail_and_cleans_resources(
     )
 
     capsys.readouterr()
-    receipt = load_v3(run_dir)
+    receipt = load_v4(run_dir)
     assert exit_code == EXIT_FAIL
     assert receipt.overall_verdict is Verdict.FAIL
     assert receipt.completed
@@ -316,7 +385,7 @@ def test_isolated_runtime_uncertainty_is_reviewable_and_cleans_partial_resources
     )
 
     capsys.readouterr()
-    receipt = load_v3(run_dir)
+    receipt = load_v4(run_dir)
     assert exit_code == EXIT_UNKNOWN
     assert receipt.overall_verdict is Verdict.UNKNOWN
     assert not receipt.completed
@@ -673,7 +742,7 @@ def test_docker_cli_interrupt_creates_unknown_receipt_and_cleans_resources(
         os.kill(process.pid, signal.SIGINT)
         stdout, stderr = process.communicate(timeout=20)
         assert process.returncode == EXIT_UNKNOWN, (stdout, stderr)
-        receipt = load_v3(run_dir)
+        receipt = load_v4(run_dir)
         assert receipt.overall_verdict is Verdict.UNKNOWN
         assert not receipt.completed
         assert receipt.criteria[0].reason == "Verification was interrupted"

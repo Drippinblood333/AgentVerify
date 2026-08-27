@@ -5,7 +5,7 @@
 > **Status: early development.** AgentVerify can run one complete local verification flow, record
 > source provenance when Git is available, bind versioned receipts to persisted evidence, inspect
 > an existing run for integrity mismatches, and optionally run an application through a controlled
-> local Docker isolation baseline.
+> local Docker isolation baseline or from one disposable selected-revision Git worktree.
 
 Licensed under [Apache-2.0](LICENSE).
 
@@ -40,7 +40,10 @@ Currently implemented:
   digest, post-snapshot plan-drift warnings, and read-only run-directory inspection; and
 - an opt-in Docker isolation baseline with fixed filesystem, environment, privilege, network,
   resource, and cleanup controls, plus receipt v3 execution metadata for both direct and Docker
-  runs.
+  runs; and
+- optional local-revision verification in an exact detached disposable Git worktree, with caller
+  state preservation, source-mutation detection, exact cleanup confirmation, and receipt v4 source
+  selection and plan-source metadata.
 
 The CLI executes the supplied application argv locally, without a shell, and gives every criterion a
 fresh browser context. Artifacts live beneath a caller-supplied run directory using portable
@@ -80,7 +83,41 @@ must be nonexistent or empty; AgentVerify never overwrites a prior run.
 
 Direct execution remains the default: omitting `--isolation` is equivalent to
 `--isolation none`. It has the same M7 lifecycle and endpoint-attribution behavior and does not
-require Docker. The real verification path now emits receipt v3 with `isolation_mode: "none"`.
+require Docker. New real verification runs emit receipt v4 with `isolation_mode: "none"` and
+`source_selection.mode: "current_worktree"`.
+
+## Optional selected-revision verification
+
+Use `--revision` before the final `--app-command` to verify one commit already present in the local
+repository without switching or cleaning the caller worktree:
+
+```console
+agentverify verify \
+  --plan examples/greeting.plan.json \
+  --base-url http://127.0.0.1:8765 \
+  --run-dir ../agentverify-runs/greeting-revision \
+  --revision HEAD~1 \
+  --app-command python examples/greeting_app.py --port 8765
+```
+
+AgentVerify resolves the selector once to a lowercase 40-character commit ID, rejects revisions
+containing submodules/gitlinks, and creates a detached worktree under the system temporary
+directory with checkout hooks redirected to an empty hooks directory. This necessarily creates a
+temporary administrative worktree registration in the caller repository. The command runs with
+that worktree as its explicit working directory; direct mode can write that disposable source,
+while Docker mode binds the same selected root read-only. The plan is still loaded and frozen
+from the original caller path before worktree creation, and the run directory must remain outside
+the disposable source.
+
+After application cleanup AgentVerify checks whether the disposable source became dirty, then
+removes and confirms only that exact worktree before finalizing evidence and receipt v4. Source
+mutation or unconfirmed worktree cleanup makes a non-FAIL run incomplete/`UNKNOWN` with exit `3`;
+a real browser assertion `FAIL` remains `FAIL`. Git is required only when `--revision` is supplied.
+No fetch, pull, clone, global prune, checkout, reset, or caller-worktree mutation is performed.
+The original HEAD, index, staged changes, unstaged changes, untracked files, and working files are
+excluded from the selected source and preserved. The local Git executable and local repository/user
+configuration remain trusted: disabling hooks is not a sandbox for arbitrary filters or other Git
+configuration, and AgentVerify does not manage Git LFS hydration.
 
 ## Optional Docker isolation baseline
 
@@ -112,7 +149,7 @@ host's `127.0.0.1`.
 
 The fixed `agentverify-docker-baseline-v1` profile:
 
-- mounts the resolved current working directory at `/workspace` read-only, disables recursive
+- mounts the explicit selected execution root at `/workspace` read-only, disables recursive
   propagation of nested host submounts, and uses `/workspace` as the container working directory;
 - rejects a filesystem/drive-root source, an unsafe comma-delimited mount path, an in-source run
   directory, and images declaring Docker `VOLUME` paths;
@@ -153,7 +190,7 @@ Inspect the completed bundle without rerunning the application or Chromium:
 agentverify inspect --run-dir .agentverify/demo-run
 ```
 
-A valid receipt-v2 or receipt-v3 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
+A valid receipt-v2, receipt-v3, or receipt-v4 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
 input exits `2`; a manifest-binding mismatch or missing/corrupt evidence emits an integrity warning
 and exits `3`. Inspection never rewrites evidence or converts an integrity problem into an
 application `FAIL`.
@@ -250,22 +287,26 @@ Artifacts and `evidence-manifest.json` are retained under the caller-supplied ru
 deletion are currently the caller's responsibility. Manifest SHA-256 values detect byte changes but
 are integrity indicators, not signatures, authentication, or cryptographic attestation.
 
-Receipt v2 and v3 record the SHA-256 of the exact persisted manifest bytes. This detects accidental
+Receipt v2, v3, and v4 record the SHA-256 of the exact persisted manifest bytes. This detects accidental
 modification, stale or partially copied files, and unsynchronized artifact replacement when the
 receipt is trusted. It does not establish authenticity: an attacker able to modify the receipt,
 manifest, and artifacts can recompute all unkeyed hashes consistently.
 
-Git provenance is captured read-only from the run's current working directory using bounded Git
-commands. AgentVerify remains usable when Git is absent or the directory is outside a repository.
-When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify the verified
-source bytes. M7 neither creates/switches worktrees nor verifies an arbitrary requested revision.
+Without `--revision`, Git provenance is captured read-only from the invocation directory using
+bounded Git commands. AgentVerify remains usable when Git is absent or the directory is outside a
+repository. When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify
+the current-worktree source bytes. With `--revision`, provenance instead identifies the exact clean
+disposable source commit while receipt v4 separately records caller HEAD/dirty state, post-run
+source dirty state, and cleanup confirmation.
 
 Receipt v3 preserves receipt-v2 environment, provenance, manifest binding, criteria, and verdict
 semantics while adding structured execution metadata. Direct runs record `isolation_mode: "none"`.
 Docker runs additionally record the fixed profile name, Docker server version, supplied mutable
 image reference, and resolved local image ID. The ID identifies the exact local image used; it is
 not a registry signature, provenance attestation, or authenticity claim. Historical receipt v1 and
-v2 files remain loadable, and receipt-v2 bundles remain inspectable.
+v2 files remain loadable. Receipt v4 preserves all v3 fields and adds discriminated source
+selection plus repository-relative-or-external plan-source metadata. Historical v2/v3/v4 bundles
+remain inspectable; external plans never expose an absolute plan path in the receipt.
 
 The plan object loaded before execution remains the authoritative frozen snapshot. After run
 finalization AgentVerify canonically reloads the original plan path; a semantic change, deletion, or
@@ -312,6 +353,11 @@ deletion remain the user's responsibility.
 - **Docker run directory is rejected:** choose a new or empty path outside the current source root.
 - **Docker application never becomes ready:** ensure it binds `0.0.0.0` at the exact port used in
   the `127.0.0.1` base URL.
+- **Revision is rejected:** ensure the selector identifies one commit already available locally and
+  that the selected tree contains no submodule/gitlink entries.
+- **Revision cleanup is unconfirmed:** treat exit `3` as incomplete, inspect the receipt limitation,
+  and use `git worktree list` to review the exact remaining registration; AgentVerify does not run a
+  repository-wide prune.
 
 The first release is deliberately limited to **locally runnable web applications** and a CLI-first experience. It will not be a hosted platform, coding-agent orchestrator, team dashboard, or general-purpose mobile and desktop testing system.
 

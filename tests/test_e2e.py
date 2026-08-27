@@ -20,7 +20,13 @@ from agentverify.domain import Verdict
 from agentverify.evidence import EvidenceKind, EvidenceStore
 from agentverify.inspection import RunIntegrityError, sha256_file
 from agentverify.plan import load_plan, plan_digest
-from agentverify.receipt import DirectExecutionMetadata, ProofReceiptV3, load_receipt
+from agentverify.receipt import (
+    CurrentWorktreeSourceSelection,
+    DirectExecutionMetadata,
+    ProofReceiptV4,
+    RepositoryPlanSource,
+    load_receipt,
+)
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
@@ -102,7 +108,7 @@ def assert_review_directory(
     *,
     expected_verdict: Verdict,
     completed: bool,
-) -> tuple[ProofReceiptV3, set[EvidenceKind]]:
+) -> tuple[ProofReceiptV4, set[EvidenceKind]]:
     receipt_json = run_dir / "receipt.json"
     receipt_text = run_dir / "receipt.txt"
     manifest_path = run_dir / "evidence-manifest.json"
@@ -111,7 +117,7 @@ def assert_review_directory(
     assert manifest_path.is_file()
 
     receipt = load_receipt(receipt_json)
-    assert isinstance(receipt, ProofReceiptV3)
+    assert isinstance(receipt, ProofReceiptV4)
     assert receipt.overall_verdict is expected_verdict
     assert receipt.completed is completed
     assert f"Verdict: {expected_verdict.value}" in receipt_text.read_text(encoding="utf-8")
@@ -163,8 +169,11 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
         completed=True,
     )
     assert receipt.criteria[0].evidence_refs
-    assert receipt.schema_version == 3
+    assert receipt.schema_version == 4
     assert isinstance(receipt.execution, DirectExecutionMetadata)
+    assert isinstance(receipt.source_selection, CurrentWorktreeSourceSelection)
+    assert isinstance(receipt.plan_source, RepositoryPlanSource)
+    assert receipt.plan_source.repository_relative_path == "examples/greeting.plan.json"
     assert receipt.execution.isolation_mode == "none"
     assert receipt.plan_digest == plan_digest(load_plan(PASS_PLAN))
     assert receipt.environment.agentverify_version
@@ -248,7 +257,7 @@ def test_repeat_runs_preserve_stable_semantics_and_browser_observation_bytes(
     capsys: CaptureFixture[str],
 ) -> None:
     run_dirs: list[Path] = []
-    receipts: list[ProofReceiptV3] = []
+    receipts: list[ProofReceiptV4] = []
     observations: list[bytes] = []
     for run_number in (1, 2):
         port = unused_tcp_port()
@@ -260,7 +269,7 @@ def test_repeat_runs_preserve_stable_semantics_and_browser_observation_bytes(
         )
         capsys.readouterr()
         loaded = load_receipt(run_dir / "receipt.json")
-        assert isinstance(loaded, ProofReceiptV3)
+        assert isinstance(loaded, ProofReceiptV4)
         manifest = EvidenceStore(run_dir).load_manifest()
         observation = next(
             artifact
@@ -323,7 +332,7 @@ def test_plan_change_after_cli_snapshot_warns_but_preserves_frozen_pass(
 
     captured = capsys.readouterr()
     receipt = load_receipt(run_dir / "receipt.json")
-    assert isinstance(receipt, ProofReceiptV3)
+    assert isinstance(receipt, ProofReceiptV4)
     assert exit_code == EXIT_PASS
     assert "Verdict: PASS" in captured.out
     assert "plan file changed after verification snapshot" in captured.err
@@ -349,7 +358,7 @@ def test_real_verification_outside_git_remains_pass_with_unavailable_provenance(
 
     captured = capsys.readouterr()
     receipt = load_receipt(run_dir / "receipt.json")
-    assert isinstance(receipt, ProofReceiptV3)
+    assert isinstance(receipt, ProofReceiptV4)
     assert exit_code == EXIT_PASS
     assert "Verdict: PASS" in captured.out
     assert receipt.source_provenance.kind == "unavailable"

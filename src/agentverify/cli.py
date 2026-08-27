@@ -81,6 +81,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="bounded TCP readiness timeout from 100 to 60000 ms (default: 10000)",
     )
     verify_parser.add_argument(
+        "--revision",
+        help="optional local Git revision verified in a disposable detached worktree",
+    )
+    verify_parser.add_argument(
         "--isolation",
         choices=("none", "docker"),
         default="none",
@@ -116,7 +120,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "verify":
         try:
-            plan = load_plan(args.plan)
+            invocation_root = Path.cwd().resolve()
+            plan_path = _resolve_from_invocation(args.plan, invocation_root)
+            run_dir = _resolve_from_invocation(args.run_dir, invocation_root)
+            plan = load_plan(plan_path)
             if not isinstance(plan, BrowserVerificationPlan):
                 raise RunConfigurationError(
                     "executable local verification currently requires Plan v2"
@@ -124,10 +131,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             outcome = verify_local_application(
                 plan=plan,
                 base_url=args.base_url,
-                run_dir=args.run_dir,
+                run_dir=run_dir,
                 app_command=args.app_command,
                 startup_timeout_ms=args.startup_timeout_ms,
-                plan_source_path=args.plan,
+                plan_source_path=plan_path,
+                invocation_root=invocation_root,
+                requested_revision=args.revision,
                 isolation_mode=args.isolation,
                 isolation_image=args.isolation_image,
             )
@@ -173,3 +182,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_SUCCESS
 
     parser.error(f"unsupported command: {args.command}")
+
+
+def _resolve_from_invocation(path: Path, invocation_root: Path) -> Path:
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        expanded = invocation_root / expanded
+    return expanded.resolve()

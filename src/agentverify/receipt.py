@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, Protocol, cast
 
 from pydantic import (
@@ -203,6 +203,73 @@ type ExecutionMetadata = Annotated[
 ]
 
 
+class CurrentWorktreeSourceSelection(BaseModel):
+    """Receipt-v4 marker for the unchanged caller-worktree route."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    mode: Literal["current_worktree"] = "current_worktree"
+
+
+class GitWorktreeSourceSelection(BaseModel):
+    """Receipt-v4 state for one disposable exact-revision source."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    mode: Literal["git_worktree"] = "git_worktree"
+    requested_revision: NonBlankText
+    resolved_revision: Annotated[
+        str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")
+    ]
+    caller_head_revision: Annotated[
+        str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")
+    ]
+    caller_dirty_worktree: bool
+    post_run_dirty_worktree: bool
+    cleanup_confirmed: bool
+
+
+type SourceSelection = Annotated[
+    CurrentWorktreeSourceSelection | GitWorktreeSourceSelection,
+    Field(discriminator="mode"),
+]
+
+
+class RepositoryPlanSource(BaseModel):
+    """Caller-plan provenance when the authoritative plan is inside the repository."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["repository"] = "repository"
+    repository_relative_path: NonBlankText
+    caller_source_revision: Annotated[
+        str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")
+    ]
+    caller_dirty_worktree: bool
+
+    @field_validator("repository_relative_path")
+    @classmethod
+    def require_safe_posix_relative_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if value == "." or path.is_absolute() or "\\" in value or ".." in path.parts:
+            raise ValueError("repository plan path must be a safe relative POSIX path")
+        return value
+
+
+class ExternalPlanSource(BaseModel):
+    """Non-identifying marker for a caller plan outside the selected repository."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["external"] = "external"
+
+
+type PlanSource = Annotated[
+    RepositoryPlanSource | ExternalPlanSource,
+    Field(discriminator="kind"),
+]
+
+
 class ProofReceiptV3(BaseModel):
     """M8 receipt recording the selected direct or Docker execution route."""
 
@@ -252,8 +319,92 @@ class ProofReceiptV3(BaseModel):
         return self
 
 
+class ProofReceiptV4(BaseModel):
+    """M9 receipt recording source selection and authoritative plan provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: Literal[4] = 4
+    task: NonBlankText
+    plan_digest: NonBlankText
+    overall_verdict: Verdict
+    completed: bool
+    criteria: Annotated[tuple[ReceiptCriterionResult, ...], Field(min_length=1)]
+    environment: EnvironmentMetadataV2
+    source_provenance: SourceProvenance
+    evidence_manifest_digest: Annotated[
+        str,
+        StringConstraints(strict=True, pattern=_DIGEST_PATTERN),
+    ]
+    execution: ExecutionMetadata
+    source_selection: SourceSelection
+    plan_source: PlanSource
+    limitations: Annotated[tuple[NonBlankText, ...], Field(min_length=1)]
+
+    @field_validator("criteria")
+    @classmethod
+    def require_unique_criterion_ids(
+        cls,
+        criteria: tuple[ReceiptCriterionResult, ...],
+    ) -> tuple[ReceiptCriterionResult, ...]:
+        seen: set[str] = set()
+        for criterion in criteria:
+            if criterion.criterion_id in seen:
+                raise ValueError(
+                    f"receipt criterion id must be unique: {criterion.criterion_id}"
+                )
+            seen.add(criterion.criterion_id)
+        return criteria
+
+    @model_validator(mode="after")
+    def require_consistent_overall_verdict(self) -> ProofReceiptV4:
+        expected = aggregate_receipt_verdict(
+            [criterion.verdict for criterion in self.criteria],
+            completed=self.completed,
+        )
+        if self.overall_verdict is not expected:
+            raise ValueError(
+                "overall verdict must match criterion verdicts and completion state: "
+                f"expected {expected.value}, got {self.overall_verdict.value}"
+            )
+        if isinstance(self.source_selection, GitWorktreeSourceSelection):
+            selection = self.source_selection
+            if (
+                self.source_provenance.kind != "git"
+                or self.source_provenance.revision != selection.resolved_revision
+                or self.source_provenance.dirty_worktree is not False
+            ):
+                raise ValueError(
+                    "git-worktree selection requires matching clean exact source provenance"
+                )
+            if self.completed and (
+                selection.post_run_dirty_worktree or not selection.cleanup_confirmed
+            ):
+                raise ValueError(
+                    "dirty or unconfirmed disposable source cannot form a completed run"
+                )
+            if isinstance(self.plan_source, RepositoryPlanSource) and (
+                self.plan_source.caller_source_revision != selection.caller_head_revision
+                or self.plan_source.caller_dirty_worktree
+                is not selection.caller_dirty_worktree
+            ):
+                raise ValueError(
+                    "repository plan source must match disposable selection caller state"
+                )
+        elif isinstance(self.plan_source, RepositoryPlanSource) and (
+            self.source_provenance.kind != "git"
+            or self.source_provenance.revision != self.plan_source.caller_source_revision
+            or self.source_provenance.dirty_worktree
+            is not self.plan_source.caller_dirty_worktree
+        ):
+            raise ValueError(
+                "current-worktree repository plan source must match source provenance"
+            )
+        return self
+
+
 type SupportedProofReceipt = Annotated[
-    ProofReceiptV1 | ProofReceiptV2 | ProofReceiptV3,
+    ProofReceiptV1 | ProofReceiptV2 | ProofReceiptV3 | ProofReceiptV4,
     Field(discriminator="schema_version"),
 ]
 _SUPPORTED_RECEIPT_ADAPTER: TypeAdapter[SupportedProofReceipt] = TypeAdapter(
@@ -422,6 +573,52 @@ def build_receipt_v3(
     )
 
 
+def build_receipt_v4(
+    *,
+    plan: SupportedVerificationPlan,
+    results: Sequence[VerificationResult],
+    completed: bool,
+    environment: EnvironmentMetadataV2,
+    source_provenance: SourceProvenance,
+    evidence_manifest_digest: str,
+    execution: ExecutionMetadata,
+    source_selection: SourceSelection,
+    plan_source: PlanSource,
+    limitations: Sequence[str],
+) -> ProofReceiptV4:
+    """Build an M9 receipt without changing historical receipt schemas."""
+    plan_criteria = cast(Sequence[_ReceiptPlanCriterion], plan.criteria)
+    indexed_results = _index_results(plan, results)
+    ordered_results = tuple(indexed_results[criterion.id] for criterion in plan_criteria)
+    criteria = tuple(
+        ReceiptCriterionResult(
+            criterion_id=criterion.id,
+            description=criterion.description,
+            verdict=result.verdict,
+            reason=result.reason,
+            evidence_refs=result.evidence_refs,
+        )
+        for criterion, result in zip(plan_criteria, ordered_results, strict=True)
+    )
+    return ProofReceiptV4(
+        task=plan.task,
+        plan_digest=plan_digest(plan),
+        overall_verdict=aggregate_receipt_verdict(
+            [result.verdict for result in ordered_results],
+            completed=completed,
+        ),
+        completed=completed,
+        criteria=criteria,
+        environment=environment,
+        source_provenance=source_provenance,
+        evidence_manifest_digest=evidence_manifest_digest,
+        execution=execution,
+        source_selection=source_selection,
+        plan_source=plan_source,
+        limitations=tuple(limitations),
+    )
+
+
 def render_receipt_json(receipt: SupportedProofReceipt) -> str:
     """Render a receipt as canonical UTF-8-compatible JSON with one newline."""
     payload: dict[str, Any] = receipt.model_dump(mode="json")
@@ -447,7 +644,7 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
         f"Python: {receipt.environment.python_version}",
         f"Platform: {receipt.environment.platform}",
     ]
-    if isinstance(receipt, (ProofReceiptV2, ProofReceiptV3)):
+    if isinstance(receipt, (ProofReceiptV2, ProofReceiptV3, ProofReceiptV4)):
         provenance = receipt.source_provenance
         lines.extend(
             (
@@ -468,7 +665,7 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
             lines.append(f"Source provenance reason: {provenance.reason}")
         if provenance.git_version is not None:
             lines.append(f"Git: {provenance.git_version}")
-        if isinstance(receipt, ProofReceiptV3):
+        if isinstance(receipt, (ProofReceiptV3, ProofReceiptV4)):
             lines.append(f"Isolation mode: {receipt.execution.isolation_mode}")
             if isinstance(receipt.execution, DockerExecutionMetadata):
                 lines.extend(
@@ -478,6 +675,28 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
                         f"Docker image reference: {receipt.execution.image_reference}",
                         f"Docker image ID: {receipt.execution.image_id}",
                     )
+                )
+        if isinstance(receipt, ProofReceiptV4):
+            lines.append(f"Source selection: {receipt.source_selection.mode}")
+            if isinstance(receipt.source_selection, GitWorktreeSourceSelection):
+                selection = receipt.source_selection
+                lines.extend(
+                    (
+                        f"Requested revision: {selection.requested_revision}",
+                        f"Resolved revision: {selection.resolved_revision}",
+                        f"Caller HEAD: {selection.caller_head_revision}",
+                        "Caller dirty worktree: "
+                        f"{'yes' if selection.caller_dirty_worktree else 'no'}",
+                        "Post-run dirty worktree: "
+                        f"{'yes' if selection.post_run_dirty_worktree else 'no'}",
+                        "Worktree cleanup confirmed: "
+                        f"{'yes' if selection.cleanup_confirmed else 'no'}",
+                    )
+                )
+            lines.append(f"Plan source: {receipt.plan_source.kind}")
+            if isinstance(receipt.plan_source, RepositoryPlanSource):
+                lines.append(
+                    f"Plan repository path: {receipt.plan_source.repository_relative_path}"
                 )
     lines.extend(("", "Criteria", ""))
     for criterion in receipt.criteria:

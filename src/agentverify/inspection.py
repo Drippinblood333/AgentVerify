@@ -18,6 +18,7 @@ from agentverify.evidence import (
 from agentverify.receipt import (
     ProofReceiptV2,
     ProofReceiptV3,
+    ProofReceiptV4,
     ReceiptCriterionResult,
     ReceiptLoadError,
     load_receipt,
@@ -39,7 +40,7 @@ class RunInspection:
     """Successful integrity inspection summary."""
 
     run_root: Path
-    receipt: ProofReceiptV2 | ProofReceiptV3
+    receipt: ProofReceiptV2 | ProofReceiptV3 | ProofReceiptV4
 
 
 def sha256_file(path: Path) -> str:
@@ -59,7 +60,7 @@ def inspect_run_directory(run_dir: Path) -> RunInspection:
         receipt = load_receipt(receipt_path)
     except ReceiptLoadError as error:
         raise InspectionInputError(str(error)) from error
-    if not isinstance(receipt, (ProofReceiptV2, ProofReceiptV3)):
+    if not isinstance(receipt, (ProofReceiptV2, ProofReceiptV3, ProofReceiptV4)):
         raise InspectionInputError(
             "receipt schema 1 does not include an evidence-manifest binding"
         )
