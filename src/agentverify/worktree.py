@@ -82,6 +82,11 @@ class ManagedGitWorktree:
         except BaseException as error:
             cleanup_confirmed = managed.cleanup()
             if isinstance(error, KeyboardInterrupt):
+                if not cleanup_confirmed:
+                    raise GitWorktreeOperationalError(
+                        "verification was interrupted and partial disposable "
+                        "worktree cleanup could not be confirmed"
+                    ) from error
                 raise
             if not cleanup_confirmed:
                 raise GitWorktreeOperationalError(
@@ -145,7 +150,7 @@ def resolve_revision(invocation_root: Path, requested_revision: str) -> Resolved
         )
     except FileNotFoundError as error:
         raise GitRevisionConfigurationError("Git executable is unavailable") from error
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except (OSError, subprocess.SubprocessError) as error:
         raise GitRevisionConfigurationError("local Git preflight could not complete") from error
     if root_result.returncode != 0:
         raise GitRevisionConfigurationError(
@@ -155,17 +160,22 @@ def resolve_revision(invocation_root: Path, requested_revision: str) -> Resolved
     resolved_revision = _read_exact_commit(repository_root, requested_revision)
     caller_head_revision = _read_exact_commit(repository_root, "HEAD")
     caller_dirty_worktree = _read_dirty_state(repository_root)
-    tree_result = _run_git(
-        [
-            "git",
-            "-C",
-            str(repository_root),
-            "ls-tree",
-            "-r",
-            "-z",
-            resolved_revision,
-        ]
-    )
+    try:
+        tree_result = _run_git(
+            [
+                "git",
+                "-C",
+                str(repository_root),
+                "ls-tree",
+                "-r",
+                "-z",
+                resolved_revision,
+            ]
+        )
+    except (FileNotFoundError, OSError, subprocess.SubprocessError) as error:
+        raise GitRevisionConfigurationError(
+            "resolved revision tree could not be inspected"
+        ) from error
     if tree_result.returncode != 0:
         raise GitRevisionConfigurationError("resolved revision tree could not be inspected")
     if any(record.startswith("160000 ") for record in tree_result.stdout.split("\x00")):

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
+import agentverify.worktree as worktree_module
 from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
 from agentverify.domain import Verdict
 from agentverify.receipt import (
@@ -22,7 +23,7 @@ from agentverify.receipt import (
     ProofReceiptV4,
     load_receipt,
 )
-from agentverify.worktree import ManagedGitWorktree
+from agentverify.worktree import GitWorktreeOperationalError, ManagedGitWorktree
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
@@ -160,7 +161,7 @@ def test_revision_a_runs_while_caller_is_b_and_dirty_state_is_preserved(
     assert receipt.source_selection.resolved_revision == revision_a
     assert receipt.source_selection.caller_head_revision == revision_b
     assert receipt.source_selection.caller_dirty_worktree is True
-    assert receipt.source_selection.post_run_dirty_worktree is False
+    assert receipt.source_selection.post_run_source_state == "clean"
     assert receipt.source_selection.cleanup_confirmed is True
     assert receipt.plan_source.kind == "repository"
     assert receipt.plan_source.repository_relative_path == "caller.plan.json"
@@ -211,7 +212,7 @@ def test_source_mutation_downgrades_pass_but_real_fail_dominates(
     assert receipt.overall_verdict is expected_verdict
     assert receipt.completed is False
     assert isinstance(receipt.source_selection, GitWorktreeSourceSelection)
-    assert receipt.source_selection.post_run_dirty_worktree is True
+    assert receipt.source_selection.post_run_source_state == "dirty"
     assert receipt.source_selection.cleanup_confirmed is True
     assert "runtime-mutation.txt" not in git(repo, "status", "--porcelain=v1")
     assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
@@ -265,6 +266,120 @@ def test_cleanup_failure_is_structured_and_preserves_fail_dominance(
     assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
 
 
+@pytest.mark.parametrize(
+    ("failing_plan", "expected_exit", "expected_verdict"),
+    ((False, EXIT_UNKNOWN, Verdict.UNKNOWN), (True, EXIT_FAIL, Verdict.FAIL)),
+)
+def test_unknown_post_run_source_state_is_truthful_and_preserves_fail_dominance(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+    failing_plan: bool,
+    expected_exit: int,
+    expected_verdict: Verdict,
+) -> None:
+    repo, revision_a, _ = create_two_commit_repository(tmp_path)
+    plan = PASS_PLAN
+    if failing_plan:
+        plan = tmp_path / "unknown-source-state-fail.plan.json"
+        payload = json.loads(PASS_PLAN.read_text(encoding="utf-8"))
+        payload["criteria"][0]["procedure"]["steps"][-1]["selector"] = "#never-visible"
+        plan.write_text(json.dumps(payload), encoding="utf-8")
+
+    def unavailable_source_state(worktree: ManagedGitWorktree) -> bool:
+        raise GitWorktreeOperationalError(
+            "injected post-run disposable source inspection failure"
+        )
+
+    monkeypatch.setattr(ManagedGitWorktree, "is_dirty", unavailable_source_state)
+    monkeypatch.chdir(repo)
+    run_dir = tmp_path / "unknown-source-state-run"
+
+    assert main(
+        revision_args(
+            plan=plan,
+            revision=revision_a,
+            port=unused_tcp_port(),
+            run_dir=run_dir,
+            pid_file=tmp_path / "unknown-source-state.pid",
+        )
+    ) == expected_exit
+    capsys.readouterr()
+
+    receipt = load_v4(run_dir)
+    assert receipt.overall_verdict is expected_verdict
+    assert receipt.completed is False
+    assert isinstance(receipt.source_selection, GitWorktreeSourceSelection)
+    assert receipt.source_selection.post_run_source_state == "unknown"
+    assert receipt.source_selection.cleanup_confirmed is True
+    assert any(
+        "Post-run disposable source state could not be inspected reliably."
+        == limitation
+        for limitation in receipt.limitations
+    )
+    assert all(
+        "application modified the disposable source worktree" not in limitation.lower()
+        for limitation in receipt.limitations
+    )
+    assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
+
+
+def test_setup_interrupt_with_unconfirmed_cleanup_is_cli_unknown_without_startup(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    repo, revision_a, _ = create_two_commit_repository(tmp_path)
+    before = git(repo, "worktree", "list", "--porcelain")
+    original_run_git = worktree_module._run_git
+    original_cleanup = ManagedGitWorktree.cleanup
+    captured_worktrees: list[ManagedGitWorktree] = []
+    application_marker = tmp_path / "application-started"
+
+    def interrupt_after_add(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        result = original_run_git(argv)
+        if "worktree" in argv and "add" in argv:
+            raise KeyboardInterrupt
+        return result
+
+    def report_unconfirmed(worktree: ManagedGitWorktree) -> bool:
+        captured_worktrees.append(worktree)
+        return False
+
+    monkeypatch.setattr(worktree_module, "_run_git", interrupt_after_add)
+    monkeypatch.setattr(ManagedGitWorktree, "cleanup", report_unconfirmed)
+    monkeypatch.chdir(repo)
+    try:
+        exit_code = main(
+            [
+                "verify",
+                "--plan",
+                str(PASS_PLAN),
+                "--base-url",
+                f"http://127.0.0.1:{unused_tcp_port()}",
+                "--run-dir",
+                str(tmp_path / "interrupted-setup-run"),
+                "--revision",
+                revision_a,
+                "--app-command",
+                sys.executable,
+                "-c",
+                f"from pathlib import Path; Path({str(application_marker)!r}).touch()",
+            ]
+        )
+    finally:
+        assert len(captured_worktrees) == 1
+        assert original_cleanup(captured_worktrees[0])
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_UNKNOWN
+    assert "worktree cleanup could not be confirmed" in captured.err
+    assert "Traceback" not in captured.err
+    assert not application_marker.exists()
+    assert not (tmp_path / "interrupted-setup-run").exists()
+    assert git(repo, "worktree", "list", "--porcelain") == before
+
+
 def test_revision_mode_detects_drift_at_original_caller_plan_path(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -313,7 +428,7 @@ def test_revision_mode_detects_drift_at_original_caller_plan_path(
     assert receipt.task == original_payload["task"]
     assert receipt.overall_verdict is Verdict.PASS
     assert isinstance(receipt.source_selection, GitWorktreeSourceSelection)
-    assert receipt.source_selection.post_run_dirty_worktree is False
+    assert receipt.source_selection.post_run_source_state == "clean"
     assert receipt.source_selection.cleanup_confirmed is True
 
 
@@ -352,6 +467,57 @@ def test_invalid_revision_is_usage_error_without_run_app_or_worktree(
     assert not run_dir.exists()
     assert not marker.exists()
     assert git(repo, "worktree", "list", "--porcelain") == worktrees_before
+
+
+@pytest.mark.parametrize("failure_kind", ("timeout", "oserror", "nonzero"))
+def test_tree_preflight_failures_are_cli_usage_without_traceback_or_startup(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+    failure_kind: str,
+) -> None:
+    repo, revision_a, _ = create_two_commit_repository(tmp_path)
+    before = git(repo, "worktree", "list", "--porcelain")
+    original_run_git = worktree_module._run_git
+    marker = tmp_path / "tree-preflight-application-started"
+    run_dir = tmp_path / "tree-preflight-run"
+
+    def fail_tree_inspection(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        if "ls-tree" in argv:
+            if failure_kind == "timeout":
+                raise subprocess.TimeoutExpired(cmd=argv, timeout=10)
+            if failure_kind == "oserror":
+                raise OSError("injected local Git failure")
+            return subprocess.CompletedProcess(argv, 1, "", "injected failure")
+        return original_run_git(argv)
+
+    monkeypatch.setattr(worktree_module, "_run_git", fail_tree_inspection)
+    monkeypatch.chdir(repo)
+    exit_code = main(
+        [
+            "verify",
+            "--plan",
+            str(PASS_PLAN),
+            "--base-url",
+            f"http://127.0.0.1:{unused_tcp_port()}",
+            "--run-dir",
+            str(run_dir),
+            "--revision",
+            revision_a,
+            "--app-command",
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(marker)!r}).touch()",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == EXIT_USAGE
+    assert "resolved revision tree could not be inspected" in captured.err
+    assert "Traceback" not in captured.err
+    assert not marker.exists()
+    assert not run_dir.exists()
+    assert git(repo, "worktree", "list", "--porcelain") == before
 
 
 def test_revision_readiness_unknown_cleans_registered_worktree(

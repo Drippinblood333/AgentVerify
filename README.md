@@ -296,8 +296,9 @@ Without `--revision`, Git provenance is captured read-only from the invocation d
 bounded Git commands. AgentVerify remains usable when Git is absent or the directory is outside a
 repository. When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify
 the current-worktree source bytes. With `--revision`, provenance instead identifies the exact clean
-disposable source commit while receipt v4 separately records caller HEAD/dirty state, post-run
-source dirty state, and cleanup confirmation.
+disposable source commit while receipt v4 separately records caller HEAD/dirty state, the explicit
+post-run source state (`clean`, `dirty`, or `unknown`), and cleanup confirmation. An unavailable
+status inspection is recorded as `unknown`; it is not falsely reported as an application mutation.
 
 Receipt v3 preserves receipt-v2 environment, provenance, manifest binding, criteria, and verdict
 semantics while adding structured execution metadata. Direct runs record `isolation_mode: "none"`.

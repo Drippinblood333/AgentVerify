@@ -66,7 +66,9 @@ retain the same criteria, completion, and aggregate verdict semantics. The image
 actual local image used without claiming registry authenticity, signature verification, or
 attestation. Receipt v4 preserves every v3 field and additionally records whether the caller source
 or a disposable worktree was used. Disposable selection records the requested selector, one frozen
-exact commit, caller HEAD and dirty state, post-run source dirty state, and exact cleanup confirmation.
+exact commit, caller HEAD and dirty state, tri-state post-run source state (`clean`, `dirty`, or
+`unknown`), and exact cleanup confirmation. Inspection failure is `unknown`, independent from
+cleanup confirmation, and never asserts that the application modified the source.
 Plan-source metadata records a POSIX repository-relative caller path with caller revision/dirty state
 or only `kind: external`; it never serializes an external absolute path.
 

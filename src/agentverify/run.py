@@ -303,7 +303,7 @@ def verify_local_application(
     lifecycle_reliable = False
     interrupted = False
     cleanup_failed = False
-    post_run_dirty_worktree = False
+    post_run_source_state: Literal["clean", "dirty", "unknown"] = "clean"
     worktree_cleanup_confirmed = True
     diagnostic_refs: tuple[str, ...] = ()
 
@@ -396,15 +396,18 @@ def verify_local_application(
     finally:
         if managed_worktree is not None:
             try:
-                post_run_dirty_worktree = managed_worktree.is_dirty()
+                post_run_source_state = (
+                    "dirty" if managed_worktree.is_dirty() else "clean"
+                )
             except GitWorktreeOperationalError:
-                post_run_dirty_worktree = True
+                post_run_source_state = "unknown"
                 limitations.append(
                     "Post-run disposable source state could not be inspected reliably."
                 )
-            if post_run_dirty_worktree:
+            if post_run_source_state != "clean":
                 cleanup_failed = True
                 lifecycle_reliable = False
+            if post_run_source_state == "dirty":
                 limitations.append(
                     "The application modified the disposable source worktree during verification."
                 )
@@ -463,7 +466,7 @@ def verify_local_application(
             resolved_revision=resolved_revision.resolved_revision,
             caller_head_revision=resolved_revision.caller_head_revision,
             caller_dirty_worktree=resolved_revision.caller_dirty_worktree,
-            post_run_dirty_worktree=post_run_dirty_worktree,
+            post_run_source_state=post_run_source_state,
             cleanup_confirmed=worktree_cleanup_confirmed,
         )
     )

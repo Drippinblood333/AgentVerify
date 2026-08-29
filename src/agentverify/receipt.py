@@ -225,7 +225,7 @@ class GitWorktreeSourceSelection(BaseModel):
         str, StringConstraints(strict=True, pattern=r"^[0-9a-f]{40}$")
     ]
     caller_dirty_worktree: bool
-    post_run_dirty_worktree: bool
+    post_run_source_state: Literal["clean", "dirty", "unknown"]
     cleanup_confirmed: bool
 
 
@@ -378,10 +378,11 @@ class ProofReceiptV4(BaseModel):
                     "git-worktree selection requires matching clean exact source provenance"
                 )
             if self.completed and (
-                selection.post_run_dirty_worktree or not selection.cleanup_confirmed
+                selection.post_run_source_state != "clean"
+                or not selection.cleanup_confirmed
             ):
                 raise ValueError(
-                    "dirty or unconfirmed disposable source cannot form a completed run"
+                    "non-clean or unconfirmed disposable source cannot form a completed run"
                 )
             if isinstance(self.plan_source, RepositoryPlanSource) and (
                 self.plan_source.caller_source_revision != selection.caller_head_revision
@@ -687,8 +688,7 @@ def render_receipt_text(receipt: SupportedProofReceipt) -> str:
                         f"Caller HEAD: {selection.caller_head_revision}",
                         "Caller dirty worktree: "
                         f"{'yes' if selection.caller_dirty_worktree else 'no'}",
-                        "Post-run dirty worktree: "
-                        f"{'yes' if selection.post_run_dirty_worktree else 'no'}",
+                        f"Post-run source state: {selection.post_run_source_state}",
                         "Worktree cleanup confirmed: "
                         f"{'yes' if selection.cleanup_confirmed else 'no'}",
                     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -52,7 +53,11 @@ def plan() -> BrowserVerificationPlan:
     )
 
 
-def build_v4(*, cleanup_confirmed: bool = True) -> ProofReceiptV4:
+def build_v4(
+    *,
+    cleanup_confirmed: bool = True,
+    post_run_source_state: Literal["clean", "dirty", "unknown"] = "clean",
+) -> ProofReceiptV4:
     return build_receipt_v4(
         plan=plan(),
         results=(
@@ -63,7 +68,7 @@ def build_v4(*, cleanup_confirmed: bool = True) -> ProofReceiptV4:
                 evidence_refs=("artifacts/000001-browser-observation.json",),
             ),
         ),
-        completed=cleanup_confirmed,
+        completed=cleanup_confirmed and post_run_source_state == "clean",
         environment=EnvironmentMetadataV2(
             agentverify_version="0.1.0.dev0",
             python_version="3.14.3",
@@ -83,7 +88,7 @@ def build_v4(*, cleanup_confirmed: bool = True) -> ProofReceiptV4:
             resolved_revision="a" * 40,
             caller_head_revision="c" * 40,
             caller_dirty_worktree=True,
-            post_run_dirty_worktree=False,
+            post_run_source_state=post_run_source_state,
             cleanup_confirmed=cleanup_confirmed,
         ),
         plan_source=RepositoryPlanSource(
@@ -142,3 +147,29 @@ def test_cleanup_failure_makes_pass_results_unknown() -> None:
     receipt = build_v4(cleanup_confirmed=False)
     assert receipt.completed is False
     assert receipt.overall_verdict is Verdict.UNKNOWN
+
+
+@pytest.mark.parametrize("state", ("dirty", "unknown"))
+def test_non_clean_post_run_source_state_makes_pass_results_unknown(
+    state: Literal["dirty", "unknown"],
+) -> None:
+    receipt = build_v4(post_run_source_state=state)
+    assert receipt.completed is False
+    assert receipt.overall_verdict is Verdict.UNKNOWN
+
+
+@pytest.mark.parametrize("state", ("dirty", "unknown"))
+def test_receipt_v4_rejects_completed_non_clean_source_state(
+    state: Literal["dirty", "unknown"],
+) -> None:
+    payload = build_v4().model_dump(mode="python")
+    payload["source_selection"]["post_run_source_state"] = state
+    with pytest.raises(ValidationError, match="non-clean"):
+        ProofReceiptV4.model_validate(payload)
+
+
+def test_receipt_v4_rejects_unsupported_post_run_source_state() -> None:
+    payload = build_v4().model_dump(mode="python")
+    payload["source_selection"]["post_run_source_state"] = "unavailable"
+    with pytest.raises(ValidationError):
+        ProofReceiptV4.model_validate(payload)

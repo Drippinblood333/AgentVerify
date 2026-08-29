@@ -128,3 +128,66 @@ def test_interrupt_after_worktree_add_still_removes_exact_registration(
     with pytest.raises(KeyboardInterrupt):
         ManagedGitWorktree.create(resolved)
     assert git(repo, "worktree", "list", "--porcelain") == before
+
+
+def test_interrupt_with_unconfirmed_partial_cleanup_is_operational_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, revision = repository(tmp_path)
+    resolved = resolve_revision(repo, revision)
+    before = git(repo, "worktree", "list", "--porcelain")
+    original_run_git = worktree_module._run_git
+    original_cleanup = ManagedGitWorktree.cleanup
+    captured: list[ManagedGitWorktree] = []
+
+    def interrupt_after_add(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        result = original_run_git(argv)
+        if "worktree" in argv and "add" in argv:
+            raise KeyboardInterrupt
+        return result
+
+    def report_unconfirmed(worktree: ManagedGitWorktree) -> bool:
+        captured.append(worktree)
+        return False
+
+    monkeypatch.setattr(worktree_module, "_run_git", interrupt_after_add)
+    monkeypatch.setattr(ManagedGitWorktree, "cleanup", report_unconfirmed)
+    try:
+        with pytest.raises(
+            worktree_module.GitWorktreeOperationalError,
+            match="interrupted.*cleanup could not be confirmed",
+        ):
+            ManagedGitWorktree.create(resolved)
+    finally:
+        assert len(captured) == 1
+        assert original_cleanup(captured[0])
+    assert git(repo, "worktree", "list", "--porcelain") == before
+
+
+@pytest.mark.parametrize("failure_kind", ("timeout", "oserror", "nonzero"))
+def test_resolve_revision_normalizes_tree_inspection_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    repo, revision = repository(tmp_path)
+    before = git(repo, "worktree", "list", "--porcelain")
+    original_run_git = worktree_module._run_git
+
+    def fail_tree_inspection(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        if "ls-tree" in argv:
+            if failure_kind == "timeout":
+                raise subprocess.TimeoutExpired(cmd=argv, timeout=10)
+            if failure_kind == "oserror":
+                raise OSError("injected local Git failure")
+            return subprocess.CompletedProcess(argv, 1, "", "injected failure")
+        return original_run_git(argv)
+
+    monkeypatch.setattr(worktree_module, "_run_git", fail_tree_inspection)
+    with pytest.raises(
+        GitRevisionConfigurationError,
+        match="resolved revision tree could not be inspected",
+    ):
+        resolve_revision(repo, revision)
+    assert git(repo, "worktree", "list", "--porcelain") == before
