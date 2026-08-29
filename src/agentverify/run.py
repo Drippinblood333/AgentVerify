@@ -45,13 +45,27 @@ from agentverify.isolation import (
 from agentverify.plan import PlanError, load_plan, plan_digest
 from agentverify.provenance import SourceProvenance, capture_source_provenance
 from agentverify.receipt import (
+    CurrentWorktreeSourceSelection,
     DirectExecutionMetadata,
     DockerExecutionMetadata,
     EnvironmentMetadataV2,
-    ProofReceiptV3,
-    build_receipt_v3,
+    ExternalPlanSource,
+    GitWorktreeSourceSelection,
+    PlanSource,
+    ProofReceiptV4,
+    RepositoryPlanSource,
+    SourceSelection,
+    build_receipt_v4,
     render_receipt_json,
     render_receipt_text,
+)
+from agentverify.worktree import (
+    GitRevisionConfigurationError,
+    GitWorktreeOperationalError,
+    ManagedGitWorktree,
+    ResolvedRevision,
+    discover_repository_root,
+    resolve_revision,
 )
 
 
@@ -71,7 +85,7 @@ class RunOperationalError(Exception):
 class LocalVerificationOutcome:
     """Completed local orchestration outputs and their authoritative receipt."""
 
-    receipt: ProofReceiptV3
+    receipt: ProofReceiptV4
     run_root: Path
     receipt_json_path: Path
     receipt_text_path: Path
@@ -204,8 +218,11 @@ def verify_local_application(
     plan_source_path: Path | None = None,
     isolation_mode: Literal["none", "docker"] = "none",
     isolation_image: str | None = None,
+    invocation_root: Path | None = None,
+    requested_revision: str | None = None,
 ) -> LocalVerificationOutcome:
     """Run the complete local lifecycle, evidence, receipt, and integrity flow."""
+    caller_root = (invocation_root or Path.cwd()).resolve()
     command = _validate_run_configuration(
         app_command=app_command,
         startup_timeout_ms=startup_timeout_ms,
@@ -213,24 +230,68 @@ def verify_local_application(
         isolation_image=isolation_image,
     )
     verifier = BrowserVerifier(base_url)
-    docker_preflight: DockerIsolationPreflight | None = None
-    if isolation_mode == "docker":
+    resolved_revision: ResolvedRevision | None = None
+    managed_worktree: ManagedGitWorktree | None = None
+    if requested_revision is not None:
         try:
+            resolved_revision = resolve_revision(caller_root, requested_revision)
+        except GitRevisionConfigurationError as error:
+            raise RunConfigurationError(str(error)) from error
+        try:
+            managed_worktree = ManagedGitWorktree.create(resolved_revision)
+        except (GitRevisionConfigurationError, GitWorktreeOperationalError) as error:
+            raise RunOperationalError(str(error)) from error
+    execution_root = (
+        managed_worktree.source_root if managed_worktree is not None else caller_root
+    )
+    source_provenance = (
+        SourceProvenance(
+            kind="git",
+            revision=resolved_revision.resolved_revision,
+            dirty_worktree=False,
+            git_version=resolved_revision.git_version,
+        )
+        if resolved_revision is not None
+        else capture_source_provenance(execution_root)
+    )
+    plan_source = _build_plan_source(
+        plan_source_path=plan_source_path,
+        invocation_root=caller_root,
+        source_provenance=source_provenance,
+        resolved_revision=resolved_revision,
+    )
+    docker_preflight: DockerIsolationPreflight | None = None
+    try:
+        if isolation_mode == "docker":
             docker_preflight = preflight_docker_isolation(
                 image_reference=isolation_image or "",
                 base_url=base_url,
                 run_dir=run_dir,
+                source_root=execution_root,
             )
-        except DockerIsolationConfigurationError as error:
-            raise RunConfigurationError(str(error)) from error
-    if endpoint_accepts_connection(base_url):
-        raise RunConfigurationError(
-            "configured application endpoint is already accepting connections; "
-            "choose a different free port so AgentVerify can attribute readiness "
-            "to the managed application"
-        )
-    source_provenance = capture_source_provenance()
-    run_root = _prepare_run_directory(run_dir)
+        if endpoint_accepts_connection(base_url):
+            raise RunConfigurationError(
+                "configured application endpoint is already accepting connections; "
+                "choose a different free port so AgentVerify can attribute readiness "
+                "to the managed application"
+            )
+        if managed_worktree is not None and run_dir.is_relative_to(execution_root):
+            raise RunConfigurationError(
+                "run directory must be outside the disposable source worktree"
+            )
+        run_root = _prepare_run_directory(run_dir)
+    except DockerIsolationConfigurationError as error:
+        if managed_worktree is not None and not managed_worktree.cleanup():
+            raise RunOperationalError(
+                "Docker preflight failed and disposable worktree cleanup was not confirmed"
+            ) from error
+        raise RunConfigurationError(str(error)) from error
+    except BaseException as error:
+        if managed_worktree is not None and not managed_worktree.cleanup():
+            raise RunOperationalError(
+                "preflight failed and disposable worktree cleanup was not confirmed"
+            ) from error
+        raise
     store = EvidenceStore(run_root)
     limitations = list(
         _DOCKER_LIMITATIONS if isolation_mode == "docker" else _DIRECT_LIMITATIONS
@@ -242,6 +303,8 @@ def verify_local_application(
     lifecycle_reliable = False
     interrupted = False
     cleanup_failed = False
+    post_run_source_state: Literal["clean", "dirty", "unknown"] = "clean"
+    worktree_cleanup_confirmed = True
     diagnostic_refs: tuple[str, ...] = ()
 
     try:
@@ -250,6 +313,7 @@ def verify_local_application(
                 process = ManagedApplication.start(
                     command,
                     max_log_bytes=store.limits.max_text_artifact_size_bytes,
+                    cwd=execution_root,
                 )
             else:
                 process = DockerManagedApplication.start(
@@ -287,46 +351,71 @@ def verify_local_application(
                 interrupted = True
                 operational_reason = _INTERRUPTED_REASON
                 limitations.append("Verification was interrupted before reliable completion.")
-    finally:
-        if process is not None:
-            try:
-                shutdown = process.stop()
-            except ApplicationCleanupError:
-                cleanup_failed = True
-                lifecycle_reliable = False
-                limitations.append("Managed application cleanup could not be confirmed.")
-            else:
-                if shutdown.force_killed:
-                    limitations.append(
-                        "The application required force termination after the "
-                        "shutdown grace period."
-                    )
-
-            process_output: ProcessOutput | None
-            try:
-                process_output = process.output()
-            except ApplicationCleanupError:
-                process_output = None
-                cleanup_failed = True
-                lifecycle_reliable = False
-                limitations.append("The application output drain did not finalize reliably.")
-
-            if process_output is not None and process_output.text:
-                process_log, fit_truncated = _fit_process_log_text(
-                    process_output.text,
-                    max_bytes=store.limits.max_text_artifact_size_bytes,
-                )
-                if process_output.truncated or fit_truncated:
-                    limitations.append(_PROCESS_LOG_TRUNCATION)
+        finally:
+            if process is not None:
                 try:
-                    process_artifact = store.record_process_log(
-                        process_log,
-                        producer="agentverify.application",
-                    )
-                except EvidenceError:
-                    limitations.append("Process output evidence could not be persisted.")
+                    shutdown = process.stop()
+                except ApplicationCleanupError:
+                    cleanup_failed = True
+                    lifecycle_reliable = False
+                    limitations.append("Managed application cleanup could not be confirmed.")
                 else:
-                    diagnostic_refs = (process_artifact.relative_path,)
+                    if shutdown.force_killed:
+                        limitations.append(
+                            "The application required force termination after the "
+                            "shutdown grace period."
+                        )
+
+                process_output: ProcessOutput | None
+                try:
+                    process_output = process.output()
+                except ApplicationCleanupError:
+                    process_output = None
+                    cleanup_failed = True
+                    lifecycle_reliable = False
+                    limitations.append(
+                        "The application output drain did not finalize reliably."
+                    )
+
+                if process_output is not None and process_output.text:
+                    process_log, fit_truncated = _fit_process_log_text(
+                        process_output.text,
+                        max_bytes=store.limits.max_text_artifact_size_bytes,
+                    )
+                    if process_output.truncated or fit_truncated:
+                        limitations.append(_PROCESS_LOG_TRUNCATION)
+                    try:
+                        process_artifact = store.record_process_log(
+                            process_log,
+                            producer="agentverify.application",
+                        )
+                    except EvidenceError:
+                        limitations.append("Process output evidence could not be persisted.")
+                    else:
+                        diagnostic_refs = (process_artifact.relative_path,)
+    finally:
+        if managed_worktree is not None:
+            try:
+                post_run_source_state = (
+                    "dirty" if managed_worktree.is_dirty() else "clean"
+                )
+            except GitWorktreeOperationalError:
+                post_run_source_state = "unknown"
+                limitations.append(
+                    "Post-run disposable source state could not be inspected reliably."
+                )
+            if post_run_source_state != "clean":
+                cleanup_failed = True
+                lifecycle_reliable = False
+            if post_run_source_state == "dirty":
+                limitations.append(
+                    "The application modified the disposable source worktree during verification."
+                )
+            worktree_cleanup_confirmed = managed_worktree.cleanup()
+            if not worktree_cleanup_confirmed:
+                cleanup_failed = True
+                lifecycle_reliable = False
+                limitations.append("Disposable Git worktree cleanup could not be confirmed.")
 
     try:
         manifest = store.build_manifest()
@@ -369,7 +458,19 @@ def verify_local_application(
             image_id=docker_preflight.image_id,
         )
     )
-    receipt = build_receipt_v3(
+    source_selection: SourceSelection = (
+        CurrentWorktreeSourceSelection()
+        if resolved_revision is None
+        else GitWorktreeSourceSelection(
+            requested_revision=resolved_revision.requested_revision,
+            resolved_revision=resolved_revision.resolved_revision,
+            caller_head_revision=resolved_revision.caller_head_revision,
+            caller_dirty_worktree=resolved_revision.caller_dirty_worktree,
+            post_run_source_state=post_run_source_state,
+            cleanup_confirmed=worktree_cleanup_confirmed,
+        )
+    )
+    receipt = build_receipt_v4(
         plan=plan,
         results=results,
         completed=completed,
@@ -382,6 +483,8 @@ def verify_local_application(
         source_provenance=source_provenance,
         evidence_manifest_digest=manifest_digest,
         execution=execution,
+        source_selection=source_selection,
+        plan_source=plan_source,
         limitations=tuple(dict.fromkeys(limitations)),
     )
     receipt_json_path = run_root / "receipt.json"
@@ -412,6 +515,45 @@ def verify_local_application(
         receipt_text_path=receipt_text_path,
         evidence_manifest_path=manifest_path,
         plan_drift_warning=plan_drift_warning,
+    )
+
+
+def _build_plan_source(
+    *,
+    plan_source_path: Path | None,
+    invocation_root: Path,
+    source_provenance: SourceProvenance,
+    resolved_revision: ResolvedRevision | None,
+) -> PlanSource:
+    if plan_source_path is None:
+        return ExternalPlanSource()
+    repository_root = (
+        resolved_revision.repository_root
+        if resolved_revision is not None
+        else discover_repository_root(invocation_root)
+    )
+    if repository_root is None:
+        return ExternalPlanSource()
+    try:
+        relative_path = plan_source_path.resolve().relative_to(repository_root).as_posix()
+    except (OSError, ValueError):
+        return ExternalPlanSource()
+    caller_revision: str | None
+    caller_dirty: bool | None
+    if resolved_revision is not None:
+        caller_revision = resolved_revision.caller_head_revision
+        caller_dirty = resolved_revision.caller_dirty_worktree
+    elif source_provenance.kind == "git":
+        caller_revision = source_provenance.revision
+        caller_dirty = source_provenance.dirty_worktree
+    else:
+        return ExternalPlanSource()
+    if caller_revision is None or caller_dirty is None:
+        return ExternalPlanSource()
+    return RepositoryPlanSource(
+        repository_relative_path=relative_path,
+        caller_source_revision=caller_revision,
+        caller_dirty_worktree=caller_dirty,
     )
 
 

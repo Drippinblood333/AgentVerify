@@ -11,6 +11,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import urlsplit
 
@@ -156,6 +157,7 @@ class ManagedApplication:
         argv: Sequence[str],
         *,
         max_log_bytes: int,
+        cwd: Path | None = None,
     ) -> ManagedApplication:
         """Start an argv directly without a shell and immediately drain output."""
         creation_flags = 0
@@ -174,6 +176,7 @@ class ManagedApplication:
                 shell=False,
                 creationflags=creation_flags,
                 start_new_session=start_new_session,
+                cwd=cwd,
             )
         except OSError as error:
             raise ApplicationStartError("application executable could not start") from error

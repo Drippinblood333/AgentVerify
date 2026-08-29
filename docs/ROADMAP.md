@@ -151,6 +151,12 @@ worktrees, select revisions, or provide remote execution.
 
 **Outcome:** Verify a selected revision in a disposable worktree while preserving the user's working directory.
 
+**Implemented boundary:** M9 preserves the caller-loaded frozen plan and M8 execution routes while
+adding optional local commit selection, one detached system-temporary worktree, explicit direct and
+Docker source roots, post-run source-mutation detection, exact worktree cleanup confirmation, and
+receipt v4 source-selection/plan-source metadata. Git remains optional without `--revision`; M9
+does not fetch, clone, pull, prune globally, support submodules, or start M10 release hardening.
+
 **Done when:**
 
 - The CLI can create, identify, use, and clean a temporary worktree for a requested local revision.
