@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  quality:
+  quality-linux:
     runs-on: ubuntu-latest
     env:
       AGENTVERIFY_REQUIRE_DOCKER: "1"
@@ -28,3 +28,56 @@ jobs:
       - run: pytest
       - run: ruff check .
       - run: mypy src tests
+
+  quality-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m playwright install chromium
+      - run: pytest
+      - run: ruff check .
+      - run: mypy src tests
+
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist
+      - run: python scripts/smoke_distribution.py dist/*.whl
+      - run: python scripts/smoke_distribution.py dist/*.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agentverify-0.1.0.dev0-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  distribution-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist
+      - run: python scripts/smoke_distribution.py (Get-ChildItem dist/*.whl).FullName
+      - run: python scripts/smoke_distribution.py (Get-ChildItem dist/*.tar.gz).FullName --cli-only

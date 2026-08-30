@@ -81,6 +81,16 @@ The successful demo prints paths to `receipt.txt`, `receipt.json`, and
 `evidence-manifest.json`, then exits after terminating the sample application. The run directory
 must be nonexistent or empty; AgentVerify never overwrites a prior run.
 
+For automation, place `--output-format json` before the final `--app-command`. Stdout then contains
+one compact JSON object for a finalized trustworthy bundle, while warnings remain on stderr:
+
+```console
+agentverify verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:8765 --run-dir .agentverify/json-demo --output-format json --app-command python examples/greeting_app.py
+```
+
+The summary reports the verdict, completion state, exit code, receipt schema, and resolved receipt
+and manifest paths. See the generic CI contract for safe handling of nonzero exits.
+
 Direct execution remains the default: omitting `--isolation` is equivalent to
 `--isolation none`. It has the same M7 lifecycle and endpoint-attribution behavior and does not
 require Docker. New real verification runs emit receipt v4 with `isolation_mode: "none"` and
@@ -367,6 +377,11 @@ The first release is deliberately limited to **locally runnable web applications
 - [Product definition](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Generic CI contract](docs/CI.md)
+- [Security and privacy boundaries](docs/SECURITY_AND_PRIVACY.md)
+- [Failure modes](docs/FAILURE_MODES.md)
+- [Compatibility](docs/COMPATIBILITY.md)
+- [Packaging](docs/PACKAGING.md)
 - [Contributor and coding-agent rules](AGENTS.md)
 
 No public release or stable API exists yet. See the roadmap for what each milestone will actually deliver.

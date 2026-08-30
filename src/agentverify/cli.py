@@ -10,6 +10,7 @@ from pathlib import Path
 from agentverify import __version__
 from agentverify.browser import BaseURLValidationError
 from agentverify.browser_plan import BrowserVerificationPlan
+from agentverify.cli_result import build_verify_summary, render_verify_summary
 from agentverify.domain import Verdict
 from agentverify.inspection import (
     InspectionInputError,
@@ -95,6 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="existing local Linux image required by --isolation docker",
     )
     verify_parser.add_argument(
+        "--output-format",
+        choices=("text", "json"),
+        default="text",
+        help="finalized result presentation (default: text)",
+    )
+    verify_parser.add_argument(
         "--app-command",
         required=True,
         nargs=argparse.REMAINDER,
@@ -155,15 +162,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if outcome.plan_drift_warning is not None:
             print(outcome.plan_drift_warning, file=sys.stderr)
-        print(f"Verdict: {outcome.receipt.overall_verdict.value}")
-        print(f"Receipt: {outcome.receipt_text_path}")
-        print(f"Receipt JSON: {outcome.receipt_json_path}")
-        print(f"Evidence manifest: {outcome.evidence_manifest_path}")
-        if outcome.receipt.overall_verdict is Verdict.PASS:
-            return EXIT_PASS
-        if outcome.receipt.overall_verdict is Verdict.FAIL:
-            return EXIT_FAIL
-        return EXIT_UNKNOWN
+        exit_code = _verification_exit_code(outcome.receipt.overall_verdict)
+        if args.output_format == "json":
+            summary = build_verify_summary(
+                verdict=outcome.receipt.overall_verdict,
+                completed=outcome.receipt.completed,
+                exit_code=exit_code,
+                receipt_schema_version=outcome.receipt.schema_version,
+                receipt_json_path=outcome.receipt_json_path,
+                receipt_text_path=outcome.receipt_text_path,
+                evidence_manifest_path=outcome.evidence_manifest_path,
+            )
+            sys.stdout.write(render_verify_summary(summary))
+        else:
+            print(f"Verdict: {outcome.receipt.overall_verdict.value}")
+            print(f"Receipt: {outcome.receipt_text_path}")
+            print(f"Receipt JSON: {outcome.receipt_json_path}")
+            print(f"Evidence manifest: {outcome.evidence_manifest_path}")
+        return exit_code
 
     if args.command == "inspect":
         try:
@@ -189,3 +205,11 @@ def _resolve_from_invocation(path: Path, invocation_root: Path) -> Path:
     if not expanded.is_absolute():
         expanded = invocation_root / expanded
     return expanded.resolve()
+
+
+def _verification_exit_code(verdict: Verdict) -> int:
+    if verdict is Verdict.PASS:
+        return EXIT_PASS
+    if verdict is Verdict.FAIL:
+        return EXIT_FAIL
+    return EXIT_UNKNOWN

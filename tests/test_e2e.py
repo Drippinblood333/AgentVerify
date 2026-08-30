@@ -81,8 +81,9 @@ def cli_args(
     pid_file: Path,
     extra_app_args: tuple[str, ...] = (),
     startup_timeout_ms: int = 5000,
+    output_format: str | None = None,
 ) -> list[str]:
-    return [
+    args = [
         "verify",
         "--plan",
         str(plan),
@@ -92,6 +93,11 @@ def cli_args(
         str(run_dir),
         "--startup-timeout-ms",
         str(startup_timeout_ms),
+    ]
+    if output_format is not None:
+        args.extend(("--output-format", output_format))
+    return [
+        *args,
         "--app-command",
         sys.executable,
         str(SAMPLE_APP),
@@ -161,6 +167,12 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
     captured = capsys.readouterr()
     assert exit_code == EXIT_PASS
     assert "Verdict: PASS" in captured.out
+    assert f"Receipt: {run_dir.resolve() / 'receipt.txt'}" in captured.out
+    assert f"Receipt JSON: {run_dir.resolve() / 'receipt.json'}" in captured.out
+    assert (
+        f"Evidence manifest: {run_dir.resolve() / 'evidence-manifest.json'}"
+        in captured.out
+    )
     assert captured.err == ""
     assert pid is not None and not process_is_alive(pid)
     receipt, kinds = assert_review_directory(
@@ -198,6 +210,49 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
     )
     assert EvidenceKind.BROWSER_OBSERVATION in kinds
     assert EvidenceKind.PROCESS_LOG in kinds
+
+
+def test_json_pass_is_one_object_with_resolved_created_paths(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    port = unused_tcp_port()
+    run_dir = tmp_path / "json-pass-run"
+    pid_file = tmp_path / "json-pass.pid"
+    exit_code = main(
+        cli_args(
+            plan=PASS_PLAN,
+            port=port,
+            run_dir=run_dir,
+            pid_file=pid_file,
+            output_format="json",
+        )
+    )
+
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert exit_code == EXIT_PASS
+    assert captured.out.endswith("\n")
+    assert captured.out.count("\n") == 1
+    assert "Verdict:" not in captured.out
+    assert captured.err == ""
+    assert summary == {
+        "completed": True,
+        "evidence_manifest_path": str(
+            (run_dir / "evidence-manifest.json").resolve()
+        ),
+        "exit_code": EXIT_PASS,
+        "output_schema_version": 1,
+        "receipt_json_path": str((run_dir / "receipt.json").resolve()),
+        "receipt_schema_version": 4,
+        "receipt_text_path": str((run_dir / "receipt.txt").resolve()),
+        "verdict": "PASS",
+    }
+    assert all(Path(summary[key]).is_file() for key in (
+        "receipt_json_path",
+        "receipt_text_path",
+        "evidence_manifest_path",
+    ))
 
 
 def test_real_run_manifest_tampering_is_reported_by_cli_inspect(
@@ -319,6 +374,8 @@ def test_plan_change_after_cli_snapshot_warns_but_preserves_frozen_pass(
             f"http://127.0.0.1:{port}",
             "--run-dir",
             str(run_dir),
+            "--output-format",
+            "json",
             "--app-command",
             sys.executable,
             "-c",
@@ -332,9 +389,11 @@ def test_plan_change_after_cli_snapshot_warns_but_preserves_frozen_pass(
 
     captured = capsys.readouterr()
     receipt = load_receipt(run_dir / "receipt.json")
+    summary = json.loads(captured.out)
     assert isinstance(receipt, ProofReceiptV4)
     assert exit_code == EXIT_PASS
-    assert "Verdict: PASS" in captured.out
+    assert summary["verdict"] == "PASS"
+    assert summary["exit_code"] == EXIT_PASS
     assert "plan file changed after verification snapshot" in captured.err
     assert frozen_digest in captured.err
     assert receipt.plan_digest == frozen_digest
@@ -380,7 +439,13 @@ def test_final_self_check_failure_never_reports_successful_pass(
     pid_file = tmp_path / "self-check.pid"
 
     exit_code = main(
-        cli_args(plan=PASS_PLAN, port=port, run_dir=run_dir, pid_file=pid_file)
+        cli_args(
+            plan=PASS_PLAN,
+            port=port,
+            run_dir=run_dir,
+            pid_file=pid_file,
+            output_format="json",
+        )
     )
 
     captured = capsys.readouterr()
@@ -433,6 +498,7 @@ def test_end_to_end_real_assertion_fail_is_authoritative_and_cleans_process(
                 port=port,
                 run_dir=run_dir,
                 pid_file=pid_file,
+                output_format="json",
             )
         )
         pid = read_pid(pid_file)
@@ -442,8 +508,12 @@ def test_end_to_end_real_assertion_fail_is_authoritative_and_cleans_process(
         cleanup_pid(pid)
 
     captured = capsys.readouterr()
+    summary = json.loads(captured.out)
     assert exit_code == EXIT_FAIL
-    assert "Verdict: FAIL" in captured.out
+    assert summary["verdict"] == "FAIL"
+    assert summary["completed"] is True
+    assert summary["exit_code"] == EXIT_FAIL
+    assert summary["receipt_schema_version"] == 4
     assert pid is not None and not process_is_alive(pid)
     receipt, kinds = assert_review_directory(
         run_dir,
