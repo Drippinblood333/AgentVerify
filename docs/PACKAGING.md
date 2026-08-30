@@ -22,9 +22,10 @@ python scripts/smoke_distribution.py dist/agentverify-0.1.0.dev0.tar.gz
 ```
 
 The helper creates its own temporary virtual environment and out-of-checkout workspace, installs
-the artifact without the dev extra, runs `pip check`, verifies the import path/version, installs
-Chromium, executes the maintained direct sample with JSON output, and checks the resulting receipt
-v4 bundle with `agentverify inspect`. Use `--cli-only` for the Windows sdist minimum smoke.
+the artifact without the dev extra, runs `pip check`, verifies the import path/version/metadata,
+and invokes the installed environment's `agentverify` console entrypoint for `--version`, `--help`,
+the maintained direct Chromium sample with JSON output, and receipt-v4 inspection. It does not use
+a repository-local console script. Use `--cli-only` for the Windows sdist minimum smoke.
 
 Playwright Chromium, Docker images, Docker itself, and the Python interpreter are not bundled. The
 user installs Chromium separately; Docker is an optional external capability; Git is optional

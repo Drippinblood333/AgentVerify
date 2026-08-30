@@ -23,13 +23,19 @@ def test_declared_python_support_matches_release_matrix() -> None:
         (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     project = pyproject["project"]
-    assert project["requires-python"] == ">=3.12"
+    assert project["requires-python"] == ">=3.12,<3.15"
     classifiers = set(project["classifiers"])
-    assert {
+    expected_python_classifiers = {
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3.14",
-    }.issubset(classifiers)
+    }
+    version_classifiers = {
+        classifier
+        for classifier in classifiers
+        if classifier.startswith("Programming Language :: Python :: 3.")
+    }
+    assert version_classifiers == expected_python_classifiers
 
 
 def test_core_source_contains_no_ci_vendor_contract() -> None:

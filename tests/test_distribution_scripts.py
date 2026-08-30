@@ -49,3 +49,24 @@ def test_smoke_source_guard_rejects_repository_import(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="did not import from the smoke environment"):
         smoke._assert_installed_source(module, tmp_path / "venv", repository)
+
+
+def test_smoke_uses_the_owned_environment_console_entrypoint(tmp_path: Path) -> None:
+    smoke = _load_script("smoke_distribution.py")
+
+    expected = tmp_path / (
+        "Scripts/agentverify.exe" if smoke.os.name == "nt" else "bin/agentverify"
+    )
+    assert smoke._venv_agentverify(tmp_path) == expected
+
+
+def test_built_metadata_python_range_allows_only_qualified_versions() -> None:
+    checker = _load_script("check_distribution.py")
+    smoke = _load_script("smoke_distribution.py")
+
+    checker._assert_requires_python(">=3.12,<3.15", source="test")
+    checker._assert_requires_python("<3.15,>=3.12", source="test")
+    assert smoke._requires_python_is_supported_range("<3.15,>=3.12") is True
+    assert smoke._requires_python_is_supported_range(">=3.12") is False
+    with pytest.raises(ValueError, match="unexpected test Requires-Python"):
+        checker._assert_requires_python(">=3.12,<3.16", source="test")

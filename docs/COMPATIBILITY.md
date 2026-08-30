@@ -4,7 +4,7 @@ This is the M10 qualification contract, not a final public semantic-versioning p
 
 | Area | v0.1 qualification |
 | --- | --- |
-| Python | 3.12, 3.13, and 3.14 |
+| Python | 3.12, 3.13, and 3.14; distribution metadata `>=3.12,<3.15` |
 | Linux host | direct, `--revision`, and Docker isolation release-tested |
 | Windows host | direct and `--revision` release-tested; Docker isolation not release-qualified |
 | macOS host | not release-qualified for v0.1 |

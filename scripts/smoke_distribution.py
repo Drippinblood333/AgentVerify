@@ -14,10 +14,17 @@ from pathlib import Path
 
 EXPECTED_VERSION = "0.1.0.dev0"
 EXPECTED_VERSION_OUTPUT = f"AgentVerify {EXPECTED_VERSION}"
+EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
 
 
 def _venv_python(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def _venv_agentverify(venv: Path) -> Path:
+    return venv / (
+        "Scripts/agentverify.exe" if os.name == "nt" else "bin/agentverify"
+    )
 
 
 def _run(
@@ -67,6 +74,12 @@ def _assert_installed_source(module_path: Path, venv: Path, repository: Path) ->
         raise RuntimeError(f"AgentVerify imported from repository source: {resolved}")
 
 
+def _requires_python_is_supported_range(value: str) -> bool:
+    return frozenset(part.strip() for part in value.split(",")) == (
+        EXPECTED_REQUIRES_PYTHON_PARTS
+    )
+
+
 def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
     repository = Path(__file__).resolve().parents[1]
     resolved_artifact = artifact.resolve()
@@ -86,16 +99,19 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             timeout=300,
         )
         _run([str(python), "-m", "pip", "check"], cwd=owned_root, timeout=60)
+        agentverify = _venv_agentverify(venv)
+        if not agentverify.is_file():
+            raise RuntimeError(f"installed console entrypoint is missing: {agentverify}")
 
         version = _run(
-            [str(python), "-m", "agentverify", "--version"],
+            [str(agentverify), "--version"],
             cwd=owned_root,
             timeout=30,
         ).stdout.strip()
         if version != EXPECTED_VERSION_OUTPUT:
             raise RuntimeError(f"unexpected CLI version: {version!r}")
         _run(
-            [str(python), "-m", "agentverify", "--help"],
+            [str(agentverify), "--help"],
             cwd=owned_root,
             timeout=30,
         )
@@ -103,20 +119,29 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             [
                 str(python),
                 "-c",
-                "import agentverify; print(agentverify.__file__); "
-                "print(agentverify.__version__)",
+                "import agentverify; from importlib.metadata import metadata; "
+                "print(agentverify.__file__); print(agentverify.__version__); "
+                "print(metadata('agentverify')['Requires-Python'])",
             ],
             cwd=owned_root,
             timeout=30,
         ).stdout.splitlines()
-        if len(probe) != 2 or probe[1] != EXPECTED_VERSION:
+        if (
+            len(probe) != 3
+            or probe[1] != EXPECTED_VERSION
+            or not _requires_python_is_supported_range(probe[2])
+        ):
             raise RuntimeError(f"unexpected installed module probe: {probe!r}")
         installed_module = Path(probe[0])
         _assert_installed_source(installed_module, venv, repository)
 
         print(f"Artifact: {resolved_artifact.name}")
+        print(f"Console entrypoint: {agentverify.resolve()}")
+        print(f"Console --version: {version}")
+        print("Console --help: OK")
         print(f"Installed module: {installed_module.resolve()}")
         print(f"Installed version: {probe[1]}")
+        print(f"Installed Requires-Python: {probe[2]}")
         print("pip check: OK")
         if cli_only:
             print("CLI smoke: OK")
@@ -136,9 +161,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
         run_dir = workspace / "run"
         verification = _run(
             [
-                str(python),
-                "-m",
-                "agentverify",
+                str(agentverify),
                 "verify",
                 "--plan",
                 "greeting.plan.json",
@@ -175,9 +198,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
                 raise RuntimeError(f"machine summary path is missing: {key}")
         inspection = _run(
             [
-                str(python),
-                "-m",
-                "agentverify",
+                str(agentverify),
                 "inspect",
                 "--run-dir",
                 str(run_dir),
