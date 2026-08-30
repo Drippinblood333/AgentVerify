@@ -63,12 +63,15 @@ def verify_args(
     base_url: str = "http://127.0.0.1:8765",
     isolation: str | None = None,
     isolation_image: str | None = None,
+    output_format: str | None = None,
 ) -> list[str]:
     isolation_args: list[str] = []
     if isolation is not None:
         isolation_args.extend(("--isolation", isolation))
     if isolation_image is not None:
         isolation_args.extend(("--isolation-image", isolation_image))
+    if output_format is not None:
+        isolation_args.extend(("--output-format", output_format))
     return [
         "verify",
         "--plan",
@@ -136,12 +139,14 @@ def test_invalid_plan_never_starts_application(
             plan=plan,
             run_dir=tmp_path / "run",
             app_command=marker_command(marker),
+            output_format="json",
         )
     )
 
     captured = capsys.readouterr()
     assert exit_code == EXIT_USAGE
     assert expected_error in captured.err
+    assert captured.out == ""
     assert not marker.exists()
     assert_no_traceback(captured.out, captured.err)
 
@@ -363,12 +368,21 @@ def test_application_start_failure_produces_unknown_receipt_without_traceback(
             plan=plan,
             run_dir=run_dir,
             app_command=["agentverify-executable-that-does-not-exist"],
+            output_format="json",
         )
     )
 
     captured = capsys.readouterr()
     assert exit_code == EXIT_UNKNOWN
-    assert "Verdict: UNKNOWN" in captured.out
+    summary = json.loads(captured.out)
+    assert captured.out.endswith("\n")
+    assert captured.out.count("\n") == 1
+    assert summary["output_schema_version"] == 1
+    assert summary["verdict"] == "UNKNOWN"
+    assert summary["completed"] is False
+    assert summary["exit_code"] == EXIT_UNKNOWN
+    assert summary["receipt_schema_version"] == 4
+    assert Path(summary["receipt_json_path"]) == (run_dir / "receipt.json").resolve()
     assert captured.err == ""
     assert (run_dir / "receipt.json").is_file()
     assert (run_dir / "receipt.txt").is_file()

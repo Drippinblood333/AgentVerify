@@ -169,6 +169,13 @@ does not fetch, clone, pull, prune globally, support submodules, or start M10 re
 
 **Outcome:** Stabilize the local CLI for generic CI use and prepare a trustworthy release candidate.
 
+**Implemented boundary on this branch:** M10 adds a separate machine-output schema v1 for finalized
+receipt-v4 bundles, keeps the text/exit/verdict contracts intact, qualifies the selected Linux and
+Windows/Python matrices, builds and clean-installs wheel/sdist artifacts, and documents CI,
+security/privacy, failure, compatibility, and packaging boundaries. It adds no verifier, receipt
+schema, verdict semantics, publishing path, tag, or public release claim. M10 remains awaiting
+independent review and is not marked globally complete here.
+
 **Done when:**
 
 - A documented non-interactive command emits stable exit codes and machine-readable receipt paths.
