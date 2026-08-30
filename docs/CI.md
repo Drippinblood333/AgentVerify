@@ -24,7 +24,7 @@ warnings go to stderr.
 This example intentionally captures nonzero statuses before restoring fail-fast behavior:
 
 ```sh
-python -m pip install agentverify
+python -m pip install agentverify-evidence
 python -m playwright install chromium
 
 set +e
@@ -54,7 +54,7 @@ exit "$agentverify_status"
 ## PowerShell
 
 ```powershell
-python -m pip install agentverify
+python -m pip install agentverify-evidence
 python -m playwright install chromium
 
 $oldPreference = $ErrorActionPreference

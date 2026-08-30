@@ -8,8 +8,9 @@ M0 defined these boundaries and contracts. M9 composes versioned Plan v2 executi
 and opt-in Docker application lifecycles, deterministic browser verification, durable evidence
 authority, real verification results, receipt v4 source-selection metadata, read-only current-source
 provenance, optional disposable Git worktrees, and post-run integrity inspection into the minimum
-complete CLI flow. M10 adds a presentation-only machine summary, host qualification, and built-
-artifact release tests without changing verification authority or runtime architecture.
+complete CLI flow. The v0.1 release layer adds a presentation-only machine summary, host
+qualification, and built-artifact release tests without changing verification authority or runtime
+architecture. M11 release preparation changes packaging and publication metadata only.
 
 ## System context and trust boundary
 
@@ -246,7 +247,7 @@ Business rules, browser code, lifecycle state, and receipt aggregation do not li
 `inspect --run-dir` returns `0` for an intact v2/v3/v4 bundle, `2` for invalid input or an unsupported
 receipt, and `3` for an integrity warning.
 
-M10 keeps text and JSON as outer presentation modes. The versioned JSON summary is emitted only
+v0.1 keeps text and JSON as outer presentation modes. The versioned JSON summary is emitted only
 after the receipt/manifest bundle is finalized and the existing read-only self-inspection succeeds;
 it references those authoritative files and does not independently decide the verdict. Its schema
 version is independent from receipt schema v4. CI-vendor integration remains outside core source,

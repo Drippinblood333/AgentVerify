@@ -12,7 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-EXPECTED_VERSION = "0.1.0.dev0"
+EXPECTED_DISTRIBUTION_NAME = "agentverify-evidence"
+EXPECTED_VERSION = "0.1.0"
 EXPECTED_VERSION_OUTPUT = f"AgentVerify {EXPECTED_VERSION}"
 EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
 
@@ -121,15 +122,17 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
                 "-c",
                 "import agentverify; from importlib.metadata import metadata; "
                 "print(agentverify.__file__); print(agentverify.__version__); "
-                "print(metadata('agentverify')['Requires-Python'])",
+                "m = metadata('agentverify-evidence'); "
+                "print(m['Requires-Python']); print(m['Name'])",
             ],
             cwd=owned_root,
             timeout=30,
         ).stdout.splitlines()
         if (
-            len(probe) != 3
+            len(probe) != 4
             or probe[1] != EXPECTED_VERSION
             or not _requires_python_is_supported_range(probe[2])
+            or probe[3] != EXPECTED_DISTRIBUTION_NAME
         ):
             raise RuntimeError(f"unexpected installed module probe: {probe!r}")
         installed_module = Path(probe[0])
@@ -142,6 +145,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
         print(f"Installed module: {installed_module.resolve()}")
         print(f"Installed version: {probe[1]}")
         print(f"Installed Requires-Python: {probe[2]}")
+        print(f"Installed distribution: {probe[3]}")
         print("pip check: OK")
         if cli_only:
             print("CLI smoke: OK")

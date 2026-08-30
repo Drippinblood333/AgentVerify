@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact reviewed release tag (v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      release-sha: ${{ steps.validate.outputs.release-sha }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate exact tag, commit, and package version
+        id: validate
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import subprocess
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          if tag != "v0.1.0":
+              raise SystemExit(f"release tag must be exactly v0.1.0, received {tag!r}")
+          tag_commit = subprocess.check_output(
+              ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+              text=True,
+          ).strip()
+          head_commit = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"], text=True
+          ).strip()
+          if tag_commit != head_commit:
+              raise SystemExit(
+                  f"tag target {tag_commit} does not equal checked-out commit {head_commit}"
+              )
+          module = ast.parse(
+              Path("src/agentverify/__init__.py").read_text(encoding="utf-8")
+          )
+          version = next(
+              node.value.value
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(
+                  isinstance(target, ast.Name) and target.id == "__version__"
+                  for target in node.targets
+              )
+              and isinstance(node.value, ast.Constant)
+              and isinstance(node.value.value, str)
+          )
+          if version != "0.1.0" or tag != f"v{version}":
+              raise SystemExit(f"tag/version mismatch: tag={tag!r}, version={version!r}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"release-sha={tag_commit}\n")
+          PY
+
+  build-release:
+    needs: validate-ref
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-ref.outputs.release-sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m build --outdir release-artifact/packages
+      - run: python scripts/check_distribution.py release-artifact/packages
+      - name: Create ordinary download-integrity checksums
+        run: |
+          cd release-artifact
+          sha256sum packages/*.whl packages/*.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agentverify-evidence-0.1.0-release
+          path: release-artifact/
+          if-no-files-found: error
+
+  verify-linux:
+    needs: [validate-ref, build-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-ref.outputs.release-sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: agentverify-evidence-0.1.0-release
+          path: release-artifact
+      - run: sha256sum --check SHA256SUMS
+        working-directory: release-artifact
+      - run: python scripts/check_distribution.py release-artifact/packages
+      - run: python scripts/smoke_distribution.py release-artifact/packages/*.whl
+      - run: python scripts/smoke_distribution.py release-artifact/packages/*.tar.gz
+
+  verify-windows:
+    needs: [validate-ref, build-release]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-ref.outputs.release-sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: agentverify-evidence-0.1.0-release
+          path: release-artifact
+      - name: Verify checksums
+        shell: pwsh
+        run: |
+          $expected = @{}
+          Get-Content release-artifact/SHA256SUMS | ForEach-Object {
+            $digest, $path = $_ -split '\s+', 2
+            $expected[$path.Replace('/', '\')] = $digest
+          }
+          foreach ($entry in $expected.GetEnumerator()) {
+            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path release-artifact $entry.Key)).Hash.ToLowerInvariant()
+            if ($actual -ne $entry.Value) { throw "checksum mismatch: $($entry.Key)" }
+          }
+      - run: python scripts/check_distribution.py release-artifact/packages
+      - run: python scripts/smoke_distribution.py (Get-ChildItem release-artifact/packages/*.whl).FullName
+      - run: python scripts/smoke_distribution.py (Get-ChildItem release-artifact/packages/*.tar.gz).FullName --cli-only
+
+  publish-pypi:
+    needs: [verify-linux, verify-windows]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: agentverify-evidence-0.1.0-release
+          path: release-artifact
+      - run: sha256sum --check SHA256SUMS
+        working-directory: release-artifact
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: release-artifact/packages/
+          attestations: false
+
+  create-github-release:
+    needs: [validate-ref, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-ref.outputs.release-sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: agentverify-evidence-0.1.0-release
+          path: release-artifact
+      - run: sha256sum --check SHA256SUMS
+        working-directory: release-artifact
+      - name: Create GitHub Release from verified published bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          --verify-tag
+          --title "AgentVerify v0.1.0"
+          --notes-file docs/releases/v0.1.0.md
+          release-artifact/packages/*.whl
+          release-artifact/packages/*.tar.gz
+          release-artifact/SHA256SUMS

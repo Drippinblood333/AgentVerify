@@ -22,18 +22,18 @@ def _load_script(name: str) -> ModuleType:
 
 def test_distribution_files_requires_exact_artifact_pair(tmp_path: Path) -> None:
     checker = _load_script("check_distribution.py")
-    (tmp_path / "agentverify-0.1.0.dev0-py3-none-any.whl").touch()
+    (tmp_path / "agentverify_evidence-0.1.0-py3-none-any.whl").touch()
 
     with pytest.raises(ValueError, match="exactly one wheel and one sdist"):
         checker.distribution_files(tmp_path)
 
 
-def test_distribution_names_match_m10_version_and_pure_python_tag(
+def test_distribution_names_match_public_version_and_pure_python_tag(
     tmp_path: Path,
 ) -> None:
     checker = _load_script("check_distribution.py")
-    wheel = tmp_path / "agentverify-0.1.0.dev0-py3-none-any.whl"
-    sdist = tmp_path / "agentverify-0.1.0.dev0.tar.gz"
+    wheel = tmp_path / "agentverify_evidence-0.1.0-py3-none-any.whl"
+    sdist = tmp_path / "agentverify_evidence-0.1.0.tar.gz"
     wheel.touch()
     sdist.touch()
 

@@ -29,7 +29,7 @@ AgentVerify verifies the resulting worktree, not the identity or transcript of t
 
 ## v0.1 scope
 
-v0.1 will support one local repository containing a web application that can be started by a user-supplied command. The user provides a versioned verification plan with explicit acceptance criteria and deterministic browser checks. AgentVerify runs the checks locally, records per-criterion results, captures bounded evidence, and renders a human-readable and machine-readable proof receipt through a CLI.
+v0.1 supports one local repository containing a web application that can be started by a user-supplied command. The user provides a versioned verification plan with explicit acceptance criteria and deterministic browser checks. AgentVerify runs the checks locally, records per-criterion results, captures bounded evidence, and renders a human-readable and machine-readable proof receipt through a CLI.
 
 The minimum user flow is:
 
@@ -54,7 +54,9 @@ For v0.1, AgentVerify will not provide:
 - a database, queue, distributed worker fleet, vector database, or RAG system;
 - a universal test framework replacement.
 
-Container isolation, Git worktrees, and CI integration are later hardening and integration milestones, not foundation requirements.
+v0.1 includes an optional bounded Docker isolation baseline, requested-revision disposable
+worktrees, and a generic CLI/exit-code/JSON contract for CI. These remain local integrations, not a
+hosted service, remote worker platform, or hostile-code security guarantee.
 
 ## Example workflow
 
