@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import signal
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pytest import CaptureFixture
@@ -32,6 +34,15 @@ REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
 PASS_PLAN = REPOSITORY_ROOT / "examples" / "greeting.plan.json"
 
+_WINDOWS_SYNCHRONIZE = 0x00100000
+_WINDOWS_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_WINDOWS_PROCESS_TERMINATE = 0x0001
+_WINDOWS_WAIT_OBJECT_0 = 0x00000000
+_WINDOWS_WAIT_TIMEOUT = 0x00000102
+_WINDOWS_WAIT_FAILED = 0xFFFFFFFF
+_WINDOWS_ERROR_INVALID_PARAMETER = 87
+_WINDOWS_CLEANUP_TIMEOUT_MS = 2_000
+
 
 def unused_tcp_port() -> int:
     with socket.socket() as listener:
@@ -39,7 +50,60 @@ def unused_tcp_port() -> int:
         return int(listener.getsockname()[1])
 
 
+def _windows_kernel32() -> Any:
+    ctypes_windows = cast(Any, ctypes)
+    kernel32 = ctypes_windows.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.TerminateProcess.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    return kernel32
+
+
+def _open_windows_process(pid: int, access: int) -> tuple[Any, int | None]:
+    ctypes_windows = cast(Any, ctypes)
+    kernel32 = _windows_kernel32()
+    ctypes_windows.set_last_error(0)
+    handle = kernel32.OpenProcess(access, False, pid)
+    if handle:
+        return kernel32, int(handle)
+    error = int(ctypes_windows.get_last_error())
+    if error == _WINDOWS_ERROR_INVALID_PARAMETER:
+        return kernel32, None
+    raise ctypes_windows.WinError(error)
+
+
+def _close_windows_handle(kernel32: Any, handle: int) -> None:
+    ctypes_windows = cast(Any, ctypes)
+    if not kernel32.CloseHandle(handle):
+        raise ctypes_windows.WinError(ctypes_windows.get_last_error())
+
+
 def process_is_alive(pid: int) -> bool:
+    if os.name == "nt":
+        ctypes_windows = cast(Any, ctypes)
+        kernel32, handle = _open_windows_process(
+            pid,
+            _WINDOWS_SYNCHRONIZE | _WINDOWS_PROCESS_QUERY_LIMITED_INFORMATION,
+        )
+        if handle is None:
+            return False
+        try:
+            result = int(kernel32.WaitForSingleObject(handle, 0))
+            if result == _WINDOWS_WAIT_TIMEOUT:
+                return True
+            if result == _WINDOWS_WAIT_OBJECT_0:
+                return False
+            if result == _WINDOWS_WAIT_FAILED:
+                raise ctypes_windows.WinError(ctypes_windows.get_last_error())
+            raise RuntimeError(f"unexpected WaitForSingleObject result: {result}")
+        finally:
+            _close_windows_handle(kernel32, handle)
+
     try:
         os.kill(pid, 0)
     except OSError:
@@ -52,8 +116,44 @@ def process_is_alive(pid: int) -> bool:
     return True
 
 
-def cleanup_pid(pid: int | None) -> None:
-    if pid is None or not process_is_alive(pid):
+def defensive_cleanup_pid(pid: int | None) -> None:
+    if pid is None:
+        return
+    if os.name == "nt":
+        ctypes_windows = cast(Any, ctypes)
+        kernel32, handle = _open_windows_process(
+            pid,
+            _WINDOWS_SYNCHRONIZE | _WINDOWS_PROCESS_TERMINATE,
+        )
+        if handle is None:
+            return
+        try:
+            result = int(kernel32.WaitForSingleObject(handle, 0))
+            if result == _WINDOWS_WAIT_OBJECT_0:
+                return
+            if result == _WINDOWS_WAIT_FAILED:
+                raise ctypes_windows.WinError(ctypes_windows.get_last_error())
+            if result != _WINDOWS_WAIT_TIMEOUT:
+                raise RuntimeError(f"unexpected WaitForSingleObject result: {result}")
+            if not kernel32.TerminateProcess(handle, 1):
+                error = int(ctypes_windows.get_last_error())
+                if int(kernel32.WaitForSingleObject(handle, 0)) == _WINDOWS_WAIT_OBJECT_0:
+                    return
+                raise ctypes_windows.WinError(error)
+            result = int(
+                kernel32.WaitForSingleObject(handle, _WINDOWS_CLEANUP_TIMEOUT_MS)
+            )
+            if result == _WINDOWS_WAIT_OBJECT_0:
+                return
+            if result == _WINDOWS_WAIT_TIMEOUT:
+                raise AssertionError(f"process {pid} did not terminate within 2 seconds")
+            if result == _WINDOWS_WAIT_FAILED:
+                raise ctypes_windows.WinError(ctypes_windows.get_last_error())
+            raise RuntimeError(f"unexpected WaitForSingleObject result: {result}")
+        finally:
+            _close_windows_handle(kernel32, handle)
+
+    if not process_is_alive(pid):
         return
     try:
         os.kill(pid, signal.SIGTERM)
@@ -67,6 +167,30 @@ def cleanup_pid(pid: int | None) -> None:
             os.kill(pid, 9)
         except OSError:
             return
+
+
+def test_process_is_alive_observation_is_non_mutating_and_detects_exit() -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert process.poll() is None
+        for _ in range(3):
+            assert process_is_alive(process.pid) is True
+            assert process.poll() is None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+
+    assert process.poll() is not None
+    assert process_is_alive(process.pid) is False
 
 
 def read_pid(pid_file: Path) -> int:
@@ -159,57 +283,58 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
             )
         )
         pid = read_pid(pid_file)
+        assert pid is not None
+        assert not process_is_alive(pid)
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_PASS
+        assert "Verdict: PASS" in captured.out
+        assert f"Receipt: {run_dir.resolve() / 'receipt.txt'}" in captured.out
+        assert f"Receipt JSON: {run_dir.resolve() / 'receipt.json'}" in captured.out
+        assert (
+            f"Evidence manifest: {run_dir.resolve() / 'evidence-manifest.json'}"
+            in captured.out
+        )
+        assert captured.err == ""
+        receipt, kinds = assert_review_directory(
+            run_dir,
+            expected_verdict=Verdict.PASS,
+            completed=True,
+        )
+        assert receipt.criteria[0].evidence_refs
+        assert receipt.schema_version == 4
+        assert isinstance(receipt.execution, DirectExecutionMetadata)
+        assert isinstance(receipt.source_selection, CurrentWorktreeSourceSelection)
+        assert isinstance(receipt.plan_source, RepositoryPlanSource)
+        assert receipt.plan_source.repository_relative_path == "examples/greeting.plan.json"
+        assert receipt.execution.isolation_mode == "none"
+        assert receipt.plan_digest == plan_digest(load_plan(PASS_PLAN))
+        assert receipt.environment.agentverify_version
+        assert receipt.environment.python_version
+        assert receipt.environment.platform
+        assert receipt.environment.playwright_version
+        assert receipt.source_provenance.kind == "git"
+        assert receipt.source_provenance.revision is not None
+        assert len(receipt.source_provenance.revision) == 40
+        expected_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout.strip()
+        assert receipt.source_provenance.revision == expected_head
+        assert isinstance(receipt.source_provenance.dirty_worktree, bool)
+        assert receipt.evidence_manifest_digest == sha256_file(
+            run_dir / "evidence-manifest.json"
+        )
+        assert EvidenceKind.BROWSER_OBSERVATION in kinds
+        assert EvidenceKind.PROCESS_LOG in kinds
     finally:
         if pid is None and pid_file.exists():
             pid = read_pid(pid_file)
-        cleanup_pid(pid)
-
-    captured = capsys.readouterr()
-    assert exit_code == EXIT_PASS
-    assert "Verdict: PASS" in captured.out
-    assert f"Receipt: {run_dir.resolve() / 'receipt.txt'}" in captured.out
-    assert f"Receipt JSON: {run_dir.resolve() / 'receipt.json'}" in captured.out
-    assert (
-        f"Evidence manifest: {run_dir.resolve() / 'evidence-manifest.json'}"
-        in captured.out
-    )
-    assert captured.err == ""
-    assert pid is not None and not process_is_alive(pid)
-    receipt, kinds = assert_review_directory(
-        run_dir,
-        expected_verdict=Verdict.PASS,
-        completed=True,
-    )
-    assert receipt.criteria[0].evidence_refs
-    assert receipt.schema_version == 4
-    assert isinstance(receipt.execution, DirectExecutionMetadata)
-    assert isinstance(receipt.source_selection, CurrentWorktreeSourceSelection)
-    assert isinstance(receipt.plan_source, RepositoryPlanSource)
-    assert receipt.plan_source.repository_relative_path == "examples/greeting.plan.json"
-    assert receipt.execution.isolation_mode == "none"
-    assert receipt.plan_digest == plan_digest(load_plan(PASS_PLAN))
-    assert receipt.environment.agentverify_version
-    assert receipt.environment.python_version
-    assert receipt.environment.platform
-    assert receipt.environment.playwright_version
-    assert receipt.source_provenance.kind == "git"
-    assert receipt.source_provenance.revision is not None
-    assert len(receipt.source_provenance.revision) == 40
-    expected_head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=REPOSITORY_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    ).stdout.strip()
-    assert receipt.source_provenance.revision == expected_head
-    assert isinstance(receipt.source_provenance.dirty_worktree, bool)
-    assert receipt.evidence_manifest_digest == sha256_file(
-        run_dir / "evidence-manifest.json"
-    )
-    assert EvidenceKind.BROWSER_OBSERVATION in kinds
-    assert EvidenceKind.PROCESS_LOG in kinds
+        defensive_cleanup_pid(pid)
 
 
 def test_json_pass_is_one_object_with_resolved_created_paths(
@@ -502,26 +627,27 @@ def test_end_to_end_real_assertion_fail_is_authoritative_and_cleans_process(
             )
         )
         pid = read_pid(pid_file)
+        assert pid is not None
+        assert not process_is_alive(pid)
+
+        captured = capsys.readouterr()
+        summary = json.loads(captured.out)
+        assert exit_code == EXIT_FAIL
+        assert summary["verdict"] == "FAIL"
+        assert summary["completed"] is True
+        assert summary["exit_code"] == EXIT_FAIL
+        assert summary["receipt_schema_version"] == 4
+        receipt, kinds = assert_review_directory(
+            run_dir,
+            expected_verdict=Verdict.FAIL,
+            completed=True,
+        )
+        assert receipt.criteria[0].verdict is Verdict.FAIL
+        assert EvidenceKind.BROWSER_OBSERVATION in kinds
     finally:
         if pid is None and pid_file.exists():
             pid = read_pid(pid_file)
-        cleanup_pid(pid)
-
-    captured = capsys.readouterr()
-    summary = json.loads(captured.out)
-    assert exit_code == EXIT_FAIL
-    assert summary["verdict"] == "FAIL"
-    assert summary["completed"] is True
-    assert summary["exit_code"] == EXIT_FAIL
-    assert summary["receipt_schema_version"] == 4
-    assert pid is not None and not process_is_alive(pid)
-    receipt, kinds = assert_review_directory(
-        run_dir,
-        expected_verdict=Verdict.FAIL,
-        completed=True,
-    )
-    assert receipt.criteria[0].verdict is Verdict.FAIL
-    assert EvidenceKind.BROWSER_OBSERVATION in kinds
+        defensive_cleanup_pid(pid)
 
 
 def test_readiness_timeout_is_unknown_reviewable_and_cleans_process(
@@ -544,30 +670,31 @@ def test_readiness_timeout_is_unknown_reviewable_and_cleans_process(
             )
         )
         pid = read_pid(pid_file)
+        assert pid is not None
+        assert not process_is_alive(pid)
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_UNKNOWN
+        assert "Verdict: UNKNOWN" in captured.out
+        receipt, kinds = assert_review_directory(
+            run_dir,
+            expected_verdict=Verdict.UNKNOWN,
+            completed=False,
+        )
+        assert receipt.criteria[0].reason == "Application readiness timed out"
+        assert EvidenceKind.BROWSER_OBSERVATION not in kinds
+        assert EvidenceKind.PROCESS_LOG in kinds
+
+        inspect_exit = main(["inspect", "--run-dir", str(run_dir)])
+        inspect_output = capsys.readouterr()
+        assert inspect_exit == EXIT_PASS
+        assert "Verdict: UNKNOWN" in inspect_output.out
+        assert "Integrity: OK" in inspect_output.out
+        assert inspect_output.err == ""
     finally:
         if pid is None and pid_file.exists():
             pid = read_pid(pid_file)
-        cleanup_pid(pid)
-
-    captured = capsys.readouterr()
-    assert exit_code == EXIT_UNKNOWN
-    assert "Verdict: UNKNOWN" in captured.out
-    assert pid is not None and not process_is_alive(pid)
-    receipt, kinds = assert_review_directory(
-        run_dir,
-        expected_verdict=Verdict.UNKNOWN,
-        completed=False,
-    )
-    assert receipt.criteria[0].reason == "Application readiness timed out"
-    assert EvidenceKind.BROWSER_OBSERVATION not in kinds
-    assert EvidenceKind.PROCESS_LOG in kinds
-
-    inspect_exit = main(["inspect", "--run-dir", str(run_dir)])
-    inspect_output = capsys.readouterr()
-    assert inspect_exit == EXIT_PASS
-    assert "Verdict: UNKNOWN" in inspect_output.out
-    assert "Integrity: OK" in inspect_output.out
-    assert inspect_output.err == ""
+        defensive_cleanup_pid(pid)
 
 
 def test_application_exit_before_readiness_is_unknown_with_process_log(
@@ -654,7 +781,7 @@ def test_preexisting_endpoint_is_rejected_without_starting_managed_command(
         if managed_pid_file.exists():
             managed_pid = read_pid(managed_pid_file)
     finally:
-        cleanup_pid(managed_pid)
+        defensive_cleanup_pid(managed_pid)
         if external_server.poll() is None:
             external_server.terminate()
             try:
@@ -705,22 +832,23 @@ def test_early_exit_e2e_cleans_orphaned_descendant_process_group(
         )
         assert child_pid_file.is_file()
         child_pid = read_pid(child_pid_file)
+        assert child_pid is not None
+        assert not process_is_alive(child_pid)
+
+        captured = capsys.readouterr()
+        assert exit_code == EXIT_UNKNOWN
+        assert "Verdict: UNKNOWN" in captured.out
+        receipt, kinds = assert_review_directory(
+            run_dir,
+            expected_verdict=Verdict.UNKNOWN,
+            completed=False,
+        )
+        assert receipt.criteria[0].reason == "Application exited before readiness"
+        assert EvidenceKind.BROWSER_OBSERVATION not in kinds
     finally:
         if child_pid is None and child_pid_file.exists():
             child_pid = read_pid(child_pid_file)
-        cleanup_pid(child_pid)
-
-    captured = capsys.readouterr()
-    assert exit_code == EXIT_UNKNOWN
-    assert "Verdict: UNKNOWN" in captured.out
-    assert child_pid is not None and not process_is_alive(child_pid)
-    receipt, kinds = assert_review_directory(
-        run_dir,
-        expected_verdict=Verdict.UNKNOWN,
-        completed=False,
-    )
-    assert receipt.criteria[0].reason == "Application exited before readiness"
-    assert EvidenceKind.BROWSER_OBSERVATION not in kinds
+        defensive_cleanup_pid(child_pid)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="reliable CLI SIGINT test is POSIX-specific")
@@ -760,22 +888,23 @@ def test_interrupt_creates_incomplete_receipt_and_cleans_application(
         app_pid = read_pid(pid_file)
         verifier.send_signal(signal.SIGINT)
         stdout, stderr = verifier.communicate(timeout=15)
+        assert app_pid is not None
+        assert not process_is_alive(app_pid)
+
+        assert verifier.returncode == EXIT_UNKNOWN
+        assert "Verdict: UNKNOWN" in stdout
+        assert "Traceback" not in stderr
+        receipt, kinds = assert_review_directory(
+            run_dir,
+            expected_verdict=Verdict.UNKNOWN,
+            completed=False,
+        )
+        assert receipt.criteria[0].reason == "Verification was interrupted"
+        assert EvidenceKind.PROCESS_LOG in kinds
     finally:
         if verifier.poll() is None:
             verifier.kill()
             verifier.wait(timeout=5)
         if app_pid is None and pid_file.exists():
             app_pid = read_pid(pid_file)
-        cleanup_pid(app_pid)
-
-    assert verifier.returncode == EXIT_UNKNOWN
-    assert "Verdict: UNKNOWN" in stdout
-    assert "Traceback" not in stderr
-    assert app_pid is not None and not process_is_alive(app_pid)
-    receipt, kinds = assert_review_directory(
-        run_dir,
-        expected_verdict=Verdict.UNKNOWN,
-        completed=False,
-    )
-    assert receipt.criteria[0].reason == "Verification was interrupted"
-    assert EvidenceKind.PROCESS_LOG in kinds
+        defensive_cleanup_pid(app_pid)
