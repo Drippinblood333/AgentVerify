@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -10,6 +11,14 @@ from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE
 from agentverify.cli_result import OUTPUT_SCHEMA_VERSION
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
+
+RELEASE_ACTION_PINS = {
+    "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
+    "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+    "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    "pypa/gh-action-pypi-publish": "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
+}
 
 
 def test_v0_1_versions_and_exit_codes_are_stable() -> None:
@@ -102,10 +111,32 @@ def test_release_workflow_is_manual_build_once_and_least_privilege() -> None:
     assert release.count("id-token: write") == 1
     assert release.count("contents: write") == 1
     assert "environment: pypi" in release
-    assert "pypa/gh-action-pypi-publish@release/v1" in release
     assert "attestations: false" in release
     assert "PYPI_TOKEN" not in release
     assert "release-sha={tag_commit}" in release
     assert release.count("ref: ${{ needs.validate-ref.outputs.release-sha }}") == 4
     assert "id-token: write" not in normal_ci
     assert "gh-action-pypi-publish" not in normal_ci
+
+
+def test_release_workflow_actions_are_immutable_and_allowlisted() -> None:
+    release = (REPOSITORY_ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    action_uses = re.findall(
+        r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", release, flags=re.MULTILINE
+    )
+    external_uses = [action for action in action_uses if not action.startswith("./")]
+
+    assert external_uses
+    assert all(
+        re.fullmatch(r"[a-z0-9_.-]+/[a-z0-9_.-]+@[0-9a-f]{40}", action)
+        for action in external_uses
+    )
+
+    observed_repositories = {action.rsplit("@", 1)[0] for action in external_uses}
+    assert observed_repositories == set(RELEASE_ACTION_PINS)
+    assert all(
+        RELEASE_ACTION_PINS[repository] == revision
+        for repository, revision in (action.rsplit("@", 1) for action in external_uses)
+    )

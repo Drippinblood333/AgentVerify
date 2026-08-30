@@ -13,6 +13,8 @@ are not reserved by repository configuration or pending Trusted Publisher record
 - Configure the GitHub `pypi` Environment with manual approval where practical.
 - The workflow explicitly disables the publishing action's optional digital attestations; release
   `SHA256SUMS` remain ordinary download-integrity checksums, not signatures or attestation.
+- All external actions in the release workflow are pinned to reviewed immutable commit SHAs; resolve
+  and review upstream release refs before changing those pins.
 
 ## Human release ceremony
 
