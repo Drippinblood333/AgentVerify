@@ -40,5 +40,5 @@ behavior; state clearly when runtime tests were not needed.
 ## Security issues
 
 Do not post exploit details or sensitive vulnerability reports in a public issue. Follow
-[SECURITY.md](SECURITY.md). The repository owner must establish the private reporting channel before
-the public release; no security email address is inferred or invented here.
+[SECURITY.md](SECURITY.md) and use this repository's GitHub Private Vulnerability Reporting flow.
+No security email address is inferred or invented here.

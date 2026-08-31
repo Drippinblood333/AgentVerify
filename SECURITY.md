@@ -20,8 +20,8 @@ containment, and process/container cleanup. Review
 
 Do not disclose exploit details, secrets, or sensitive evidence in a public GitHub issue.
 
-**OWNER ACTION REQUIRED — private security reporting channel:** GitHub Private Vulnerability
-Reporting is not currently enabled for this repository, and no approved private contact is recorded.
-The owner must enable a real private reporting path and replace this action item with exact reporting
-instructions before approving the public v0.1.0 release. Until then, the public release is blocked;
-this document intentionally does not invent an email address or direct reporters to public disclosure.
+Use GitHub Private Vulnerability Reporting for this repository: open the repository's
+**Security** tab, select **Advisories**, and choose **Report a vulnerability**. Reports submitted
+through that flow remain private to repository maintainers and invited security collaborators.
+
+No response or remediation SLA is promised.

@@ -1,7 +1,8 @@
 # Security and privacy boundaries
 
 This document describes runtime behavior for the v0.1 line. The public vulnerability-reporting
-policy and its current owner-action blocker are in the repository root [SECURITY.md](../SECURITY.md).
+policy and private GitHub reporting path are in the repository root
+[SECURITY.md](../SECURITY.md).
 
 ## Execution modes
 
