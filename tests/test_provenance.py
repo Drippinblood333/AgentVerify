@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify_evidence.provenance import capture_source_provenance
+from donewitness.provenance import capture_source_provenance
 
 
 def git(repo: Path, *args: str) -> str:
@@ -29,8 +29,8 @@ def git_repository(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init")
-    git(repo, "config", "user.name", "AgentVerify Tests")
-    git(repo, "config", "user.email", "agentverify@example.invalid")
+    git(repo, "config", "user.name", "DoneWitness Tests")
+    git(repo, "config", "user.email", "donewitness@example.invalid")
     (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
     git(repo, "add", "tracked.txt")
     git(repo, "commit", "-m", "initial")
@@ -78,7 +78,7 @@ def test_outside_git_is_explicitly_unavailable(tmp_path: Path) -> None:
 def test_missing_git_executable_is_explicitly_unavailable(tmp_path: Path) -> None:
     provenance = capture_source_provenance(
         tmp_path,
-        git_executable="agentverify-git-executable-that-does-not-exist",
+        git_executable="donewitness-git-executable-that-does-not-exist",
     )
 
     assert provenance.kind == "unavailable"

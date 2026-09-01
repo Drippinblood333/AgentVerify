@@ -16,13 +16,13 @@ from typing import Any, cast
 import pytest
 from pytest import CaptureFixture
 
-from agentverify_evidence.application import endpoint_accepts_connection
-from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify_evidence.domain import Verdict
-from agentverify_evidence.evidence import EvidenceKind, EvidenceStore
-from agentverify_evidence.inspection import RunIntegrityError, sha256_file
-from agentverify_evidence.plan import load_plan, plan_digest
-from agentverify_evidence.receipt import (
+from donewitness.application import endpoint_accepts_connection
+from donewitness.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
+from donewitness.domain import Verdict
+from donewitness.evidence import EvidenceKind, EvidenceStore
+from donewitness.inspection import RunIntegrityError, sha256_file
+from donewitness.plan import load_plan, plan_digest
+from donewitness.receipt import (
     CurrentWorktreeSourceSelection,
     DirectExecutionMetadata,
     ProofReceiptV4,
@@ -309,7 +309,7 @@ def test_end_to_end_pass_creates_reviewable_outputs_and_cleans_process(
         assert receipt.plan_source.repository_relative_path == "examples/greeting.plan.json"
         assert receipt.execution.isolation_mode == "none"
         assert receipt.plan_digest == plan_digest(load_plan(PASS_PLAN))
-        assert receipt.environment.agentverify_version
+        assert receipt.environment.donewitness_version
         assert receipt.environment.python_version
         assert receipt.environment.platform
         assert receipt.environment.playwright_version
@@ -558,7 +558,7 @@ def test_final_self_check_failure_never_reports_successful_pass(
     def fail_self_check(run_dir: Path) -> None:
         raise RunIntegrityError(f"forced self-check mismatch in {run_dir.name}")
 
-    monkeypatch.setattr("agentverify_evidence.run.inspect_run_directory", fail_self_check)
+    monkeypatch.setattr("donewitness.run.inspect_run_directory", fail_self_check)
     port = unused_tcp_port()
     run_dir = tmp_path / "self-check-run"
     pid_file = tmp_path / "self-check.pid"
@@ -861,7 +861,7 @@ def test_interrupt_creates_incomplete_receipt_and_cleans_application(
     command = [
         sys.executable,
         "-m",
-        "agentverify",
+        "donewitness",
         *cli_args(
             plan=PASS_PLAN,
             port=port,

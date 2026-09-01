@@ -11,40 +11,40 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal
 
-from agentverify_evidence import __version__
-from agentverify_evidence.application import (
+from donewitness import __version__
+from donewitness.application import (
     ApplicationCleanupError,
     ApplicationStartError,
     ManagedApplication,
     ProcessOutput,
     endpoint_accepts_connection,
 )
-from agentverify_evidence.browser import BrowserExecutionResult, BrowserVerifier
-from agentverify_evidence.browser_plan import BrowserVerificationPlan
-from agentverify_evidence.domain import Verdict, VerificationResult
-from agentverify_evidence.evidence import (
+from donewitness.browser import BrowserExecutionResult, BrowserVerifier
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import Verdict, VerificationResult
+from donewitness.evidence import (
     EvidenceError,
     EvidenceKind,
     EvidenceManifest,
     EvidenceStore,
     redact_sensitive_text,
 )
-from agentverify_evidence.inspection import (
+from donewitness.inspection import (
     InspectionInputError,
     RunIntegrityError,
     inspect_run_directory,
     sha256_file,
 )
-from agentverify_evidence.isolation import (
+from donewitness.isolation import (
     DOCKER_PROFILE_NAME,
     DockerIsolationConfigurationError,
     DockerIsolationPreflight,
     DockerManagedApplication,
     preflight_docker_isolation,
 )
-from agentverify_evidence.plan import PlanError, load_plan, plan_digest
-from agentverify_evidence.provenance import SourceProvenance, capture_source_provenance
-from agentverify_evidence.receipt import (
+from donewitness.plan import PlanError, load_plan, plan_digest
+from donewitness.provenance import SourceProvenance, capture_source_provenance
+from donewitness.receipt import (
     CurrentWorktreeSourceSelection,
     DirectExecutionMetadata,
     DockerExecutionMetadata,
@@ -59,7 +59,7 @@ from agentverify_evidence.receipt import (
     render_receipt_json,
     render_receipt_text,
 )
-from agentverify_evidence.worktree import (
+from donewitness.worktree import (
     GitRevisionConfigurationError,
     GitWorktreeOperationalError,
     ManagedGitWorktree,
@@ -106,7 +106,7 @@ _DOCKER_LIMITATIONS = (
     "The internal Docker bridge is intended to remove normal external connectivity but may "
     "still permit Docker-managed host or gateway communication depending on the runtime.",
     "When Docker does not activate a requested localhost mapping for an internal-only bridge, "
-    "AgentVerify uses a bounded host-loopback TCP relay to the exact managed container port.",
+    "DoneWitness uses a bounded host-loopback TCP relay to the exact managed container port.",
     "The Docker isolation baseline provides no image signature, registry authenticity, "
     "attestation, remote execution, or universal host-network separation guarantee.",
     "Textual redaction is best-effort; rich browser artifacts may contain sensitive data.",
@@ -272,7 +272,7 @@ def verify_local_application(
         if endpoint_accepts_connection(base_url):
             raise RunConfigurationError(
                 "configured application endpoint is already accepting connections; "
-                "choose a different free port so AgentVerify can attribute readiness "
+                "choose a different free port so DoneWitness can attribute readiness "
                 "to the managed application"
             )
         if managed_worktree is not None and run_dir.is_relative_to(execution_root):
@@ -387,7 +387,7 @@ def verify_local_application(
                     try:
                         process_artifact = store.record_process_log(
                             process_log,
-                            producer="agentverify.application",
+                            producer="donewitness.application",
                         )
                     except EvidenceError:
                         limitations.append("Process output evidence could not be persisted.")
@@ -475,7 +475,7 @@ def verify_local_application(
         results=results,
         completed=completed,
         environment=EnvironmentMetadataV2(
-            agentverify_version=__version__,
+            donewitness_version=__version__,
             python_version=platform_module.python_version(),
             platform=platform_module.platform(),
             playwright_version=_playwright_version(),
@@ -630,7 +630,7 @@ def _prepare_run_directory(run_dir: Path) -> Path:
         if any(resolved.iterdir()):
             raise RunConfigurationError("run directory must be empty")
         descriptor, probe_name = tempfile.mkstemp(
-            prefix=".agentverify-preflight-",
+            prefix=".donewitness-preflight-",
             dir=resolved,
         )
         probe_path = Path(probe_name)
@@ -656,7 +656,7 @@ def _fit_process_log_text(text: str, *, max_bytes: int) -> tuple[str, bool]:
     if len(redacted.encode("utf-8")) <= max_bytes:
         return text, False
 
-    marker = "\n[agentverify: process output truncated before persistence]\n"
+    marker = "\n[donewitness: process output truncated before persistence]\n"
     retained_characters = len(text)
     while retained_characters > 0:
         retained_characters //= 2
@@ -671,7 +671,7 @@ def _atomic_create_text(destination: Path, content: str) -> None:
     temporary_path: Path | None = None
     try:
         descriptor, temporary_name = tempfile.mkstemp(
-            prefix=".agentverify-receipt-",
+            prefix=".donewitness-receipt-",
             dir=destination.parent,
         )
         temporary_path = Path(temporary_name)

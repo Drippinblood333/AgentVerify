@@ -15,15 +15,15 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
-import agentverify_evidence.worktree as worktree_module
-from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify_evidence.domain import Verdict
-from agentverify_evidence.receipt import (
+import donewitness.worktree as worktree_module
+from donewitness.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
+from donewitness.domain import Verdict
+from donewitness.receipt import (
     GitWorktreeSourceSelection,
     ProofReceiptV4,
     load_receipt,
 )
-from agentverify_evidence.worktree import GitWorktreeOperationalError, ManagedGitWorktree
+from donewitness.worktree import GitWorktreeOperationalError, ManagedGitWorktree
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
@@ -60,8 +60,8 @@ def create_two_commit_repository(
     repo = tmp_path / "repository"
     repo.mkdir()
     git(repo, "init")
-    git(repo, "config", "user.name", "AgentVerify Test")
-    git(repo, "config", "user.email", "agentverify@example.invalid")
+    git(repo, "config", "user.name", "DoneWitness Test")
+    git(repo, "config", "user.email", "donewitness@example.invalid")
     app = repo / "app.py"
     shutil.copy2(SAMPLE_APP, app)
     if mutate_source_at_runtime:
@@ -167,7 +167,7 @@ def test_revision_a_runs_while_caller_is_b_and_dirty_state_is_preserved(
     assert receipt.plan_source.repository_relative_path == "caller.plan.json"
     assert receipt.plan_source.caller_source_revision == revision_b
     assert receipt.plan_source.caller_dirty_worktree is True
-    assert "agentverify-worktree-" not in (run_dir / "receipt.json").read_text(
+    assert "donewitness-worktree-" not in (run_dir / "receipt.json").read_text(
         encoding="utf-8"
     )
 
@@ -215,7 +215,7 @@ def test_source_mutation_downgrades_pass_but_real_fail_dominates(
     assert receipt.source_selection.post_run_source_state == "dirty"
     assert receipt.source_selection.cleanup_confirmed is True
     assert "runtime-mutation.txt" not in git(repo, "status", "--porcelain=v1")
-    assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
+    assert "donewitness-worktree-" not in git(repo, "worktree", "list", "--porcelain")
 
 
 @pytest.mark.parametrize(
@@ -263,7 +263,7 @@ def test_cleanup_failure_is_structured_and_preserves_fail_dominance(
     assert receipt.completed is False
     assert isinstance(receipt.source_selection, GitWorktreeSourceSelection)
     assert receipt.source_selection.cleanup_confirmed is False
-    assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
+    assert "donewitness-worktree-" not in git(repo, "worktree", "list", "--porcelain")
 
 
 @pytest.mark.parametrize(
@@ -321,7 +321,7 @@ def test_unknown_post_run_source_state_is_truthful_and_preserves_fail_dominance(
         "application modified the disposable source worktree" not in limitation.lower()
         for limitation in receipt.limitations
     )
-    assert "agentverify-worktree-" not in git(repo, "worktree", "list", "--porcelain")
+    assert "donewitness-worktree-" not in git(repo, "worktree", "list", "--porcelain")
 
 
 def test_setup_interrupt_with_unconfirmed_cleanup_is_cli_unknown_without_startup(
@@ -561,7 +561,7 @@ def test_revision_interrupt_cleans_application_and_registered_worktree(tmp_path:
     command = [
         sys.executable,
         "-m",
-        "agentverify",
+        "donewitness",
         *revision_args(
             plan=PASS_PLAN,
             revision=revision_a,

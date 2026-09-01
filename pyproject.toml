@@ -3,14 +3,14 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentverify-evidence"
+name = "donewitness"
 dynamic = ["version"]
-description = "Independent, evidence-first verification for AI coding agents"
+description = "Deterministic, evidence-first acceptance verification for AI-written web software"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{name = "AgentVerify contributors"}]
+authors = [{name = "DoneWitness contributors"}]
 keywords = [
   "ai",
   "coding-agents",
@@ -52,14 +52,14 @@ dev = [
 ]
 
 [project.scripts]
-agentverify = "agentverify_evidence.cli:main"
+donewitness = "donewitness.cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "agentverify_evidence.__version__"}
+version = {attr = "donewitness.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["agentverify_evidence*"]
+include = ["donewitness*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

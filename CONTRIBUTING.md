@@ -1,11 +1,11 @@
-# Contributing to AgentVerify
+# Contributing to DoneWitness
 
-AgentVerify accepts focused changes that preserve its evidence-first verification boundary. Human
+DoneWitness accepts focused changes that preserve its evidence-first verification boundary. Human
 contributors should use this guide; coding agents must also follow [AGENTS.md](AGENTS.md).
 
 ## Development setup
 
-AgentVerify supports Python 3.12, 3.13, and 3.14. From a source checkout:
+DoneWitness supports Python 3.12, 3.13, and 3.14. From a source checkout:
 
 ```console
 python -m pip install -e ".[dev]"
@@ -21,7 +21,7 @@ python -m mypy src tests
 git diff --check
 ```
 
-Linux CI requires the real Docker suites with `AGENTVERIFY_REQUIRE_DOCKER=1`, Docker Engine in
+Linux CI requires the real Docker suites with `DONEWITNESS_REQUIRE_DOCKER=1`, Docker Engine in
 Linux-container mode, and the maintained `python:3.12-slim` fixture image. Windows Docker is not
 release-qualified for v0.1.
 

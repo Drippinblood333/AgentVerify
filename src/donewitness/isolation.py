@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from agentverify_evidence.application import (
+from donewitness.application import (
     ApplicationCleanupError,
     ApplicationStartError,
     ApplicationState,
@@ -28,7 +28,7 @@ from agentverify_evidence.application import (
     endpoint_accepts_connection,
 )
 
-DOCKER_PROFILE_NAME = "agentverify-docker-baseline-v1"
+DOCKER_PROFILE_NAME = "donewitness-docker-baseline-v1"
 DOCKER_MINIMUM_SERVER_MAJOR = 28
 DOCKER_MEMORY_LIMIT = "512m"
 DOCKER_CPU_LIMIT = "1.0"
@@ -76,7 +76,7 @@ class _LoopbackTCPRelay:
         self._workers: set[threading.Thread] = set()
         self._accept_thread = threading.Thread(
             target=self._accept_connections,
-            name="agentverify-docker-loopback-relay",
+            name="donewitness-docker-loopback-relay",
             daemon=True,
         )
 
@@ -131,7 +131,7 @@ class _LoopbackTCPRelay:
                 worker = threading.Thread(
                     target=self._relay_connection,
                     args=(client,),
-                    name="agentverify-docker-relay-connection",
+                    name="donewitness-docker-relay-connection",
                     daemon=True,
                 )
                 self._workers.add(worker)
@@ -350,8 +350,8 @@ class DockerManagedApplication:
     ) -> DockerManagedApplication:
         """Create one internal network and start one attached managed container."""
         suffix = uuid.uuid4().hex
-        container_name = f"agentverify-{suffix}-app"
-        network_name = f"agentverify-{suffix}-net"
+        container_name = f"donewitness-{suffix}-app"
+        network_name = f"donewitness-{suffix}-net"
         try:
             network_result = _run_cli(
                 (
@@ -360,7 +360,7 @@ class DockerManagedApplication:
                     "create",
                     "--internal",
                     "--label",
-                    "agentverify.managed=true",
+                    "donewitness.managed=true",
                     network_name,
                 )
             )
@@ -444,7 +444,7 @@ class DockerManagedApplication:
         reader = threading.Thread(
             target=drain.drain,
             args=(process.stdout,),
-            name="agentverify-docker-output",
+            name="donewitness-docker-output",
             daemon=True,
         )
         reader.start()
@@ -514,7 +514,7 @@ class DockerManagedApplication:
                         )
                         continue
                     else:
-                        self.port_delivery = "agentverify-loopback-relay"
+                        self.port_delivery = "donewitness-loopback-relay"
                 if self._process.poll() is not None:
                     self.state = ApplicationState.EXITED_BEFORE_READINESS
                     return ReadinessResult(False, "Docker application exited before readiness")
@@ -659,7 +659,7 @@ def _docker_run_argv(
         "--name",
         container_name,
         "--label",
-        "agentverify.managed=true",
+        "donewitness.managed=true",
         "--network",
         network_name,
         "--pull",

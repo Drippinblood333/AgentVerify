@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentverify_evidence.browser_plan import BrowserVerificationPlan
-from agentverify_evidence.domain import (
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import (
     AcceptanceCriterion,
     Verdict,
     VerificationPlan,
     VerificationResult,
 )
-from agentverify_evidence.receipt import (
+from donewitness.receipt import (
     EnvironmentMetadata,
     ProofReceipt,
     ReceiptCriterionResult,
@@ -25,7 +25,7 @@ from agentverify_evidence.receipt import (
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 ENVIRONMENT = EnvironmentMetadata(
-    agentverify_version="0.1.0.dev0",
+    donewitness_version="0.1.0.dev0",
     python_version="3.14.3",
     platform="Windows",
 )

@@ -18,14 +18,14 @@ from pydantic import (
     model_validator,
 )
 
-from agentverify_evidence.domain import (
+from donewitness.domain import (
     NonBlankText,
     Verdict,
     VerificationResult,
     aggregate_verdict,
 )
-from agentverify_evidence.plan import SupportedVerificationPlan, plan_digest
-from agentverify_evidence.provenance import SourceProvenance
+from donewitness.plan import SupportedVerificationPlan, plan_digest
+from donewitness.provenance import SourceProvenance
 
 _DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"
 
@@ -48,7 +48,7 @@ class EnvironmentMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    agentverify_version: NonBlankText
+    donewitness_version: NonBlankText
     python_version: NonBlankText
     platform: NonBlankText
 
@@ -635,13 +635,13 @@ def render_receipt_json(receipt: SupportedProofReceipt) -> str:
 def render_receipt_text(receipt: SupportedProofReceipt) -> str:
     """Render a receipt as deterministic plain terminal text."""
     lines = [
-        "AGENTVERIFY PROOF RECEIPT",
+        "DONEWITNESS PROOF RECEIPT",
         "",
         f"Task: {receipt.task}",
         f"Plan: {receipt.plan_digest}",
         f"Verdict: {receipt.overall_verdict.value}",
         f"Run completed: {'yes' if receipt.completed else 'no'}",
-        f"AgentVerify: {receipt.environment.agentverify_version}",
+        f"DoneWitness: {receipt.environment.donewitness_version}",
         f"Python: {receipt.environment.python_version}",
         f"Platform: {receipt.environment.platform}",
     ]

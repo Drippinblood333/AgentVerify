@@ -17,17 +17,17 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify_evidence.application import endpoint_accepts_connection
-from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_SUCCESS, EXIT_UNKNOWN, main
-from agentverify_evidence.domain import Verdict
-from agentverify_evidence.evidence import EvidenceKind, EvidenceStore
-from agentverify_evidence.isolation import (
+from donewitness.application import endpoint_accepts_connection
+from donewitness.cli import EXIT_FAIL, EXIT_PASS, EXIT_SUCCESS, EXIT_UNKNOWN, main
+from donewitness.domain import Verdict
+from donewitness.evidence import EvidenceKind, EvidenceStore
+from donewitness.isolation import (
     DOCKER_PROFILE_NAME,
     DockerManagedApplication,
     preflight_docker_isolation,
 )
-from agentverify_evidence.plan import load_plan, plan_digest
-from agentverify_evidence.receipt import (
+from donewitness.plan import load_plan, plan_digest
+from donewitness.receipt import (
     DockerExecutionMetadata,
     GitWorktreeSourceSelection,
     ProofReceiptV4,
@@ -38,7 +38,7 @@ REPOSITORY_ROOT = Path(__file__).parents[1]
 PASS_PLAN = REPOSITORY_ROOT / "examples" / "greeting.plan.json"
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"
 DOCKER_IMAGE = "python:3.12-slim"
-MANAGED_LABEL = "agentverify.managed=true"
+MANAGED_LABEL = "donewitness.managed=true"
 
 
 def docker_cli(
@@ -78,7 +78,7 @@ def git_cli(repo: Path, *args: str) -> str:
 
 @pytest.fixture(scope="module")
 def docker_executable() -> str:
-    required = os.environ.get("AGENTVERIFY_REQUIRE_DOCKER") == "1"
+    required = os.environ.get("DONEWITNESS_REQUIRE_DOCKER") == "1"
 
     def unavailable(reason: str) -> None:
         if required:
@@ -273,8 +273,8 @@ def test_docker_revision_uses_disposable_selected_source_root(
     repo = tmp_path / "revision-repo"
     repo.mkdir()
     git_cli(repo, "init")
-    git_cli(repo, "config", "user.name", "AgentVerify Test")
-    git_cli(repo, "config", "user.email", "agentverify@example.invalid")
+    git_cli(repo, "config", "user.name", "DoneWitness Test")
+    git_cli(repo, "config", "user.email", "donewitness@example.invalid")
     app = repo / "app.py"
     shutil.copy2(SAMPLE_APP, app)
     git_cli(repo, "add", "app.py")
@@ -357,7 +357,7 @@ def test_isolated_assertion_fail_remains_fail_and_cleans_resources(
             "Docker application readiness timed out",
         ),
         (
-            lambda port: ("agentverify-command-that-does-not-exist",),
+            lambda port: ("donewitness-command-that-does-not-exist",),
             2000,
             "Docker application exited before readiness",
         ),
@@ -403,9 +403,9 @@ def test_runtime_inspection_proves_documented_docker_boundaries(
     run_dir = tmp_path / "outside-source-run"
     canary = tmp_path / "outside-source-canary"
     canary.write_text("host only", encoding="utf-8")
-    source_marker = REPOSITORY_ROOT / ".agentverify-m8-source-write-marker"
+    source_marker = REPOSITORY_ROOT / ".donewitness-m8-source-write-marker"
     source_marker.unlink(missing_ok=True)
-    monkeypatch.setenv("AGENTVERIFY_M8_HOST_SECRET", "must-not-enter-container")
+    monkeypatch.setenv("DONEWITNESS_M8_HOST_SECRET", "must-not-enter-container")
     script = """
 import json, os, socket, sys
 def write_succeeds(path):
@@ -416,13 +416,13 @@ def write_succeeds(path):
     except OSError:
         return False
 checks = {
-    "source_write": write_succeeds("/workspace/.agentverify-m8-source-write-marker"),
-    "root_write": write_succeeds("/agentverify-m8-root-write-marker"),
-    "tmp_write": write_succeeds("/tmp/agentverify-m8-tmp-write-marker"),
-    "shm_write": write_succeeds("/dev/shm/agentverify-m8-shm-write-marker"),
+    "source_write": write_succeeds("/workspace/.donewitness-m8-source-write-marker"),
+    "root_write": write_succeeds("/donewitness-m8-root-write-marker"),
+    "tmp_write": write_succeeds("/tmp/donewitness-m8-tmp-write-marker"),
+    "shm_write": write_succeeds("/dev/shm/donewitness-m8-shm-write-marker"),
     "outside_canary_visible": os.path.exists(sys.argv[2]),
     "run_dir_visible": os.path.exists(sys.argv[3]),
-    "host_secret_present": "AGENTVERIFY_M8_HOST_SECRET" in os.environ,
+    "host_secret_present": "DONEWITNESS_M8_HOST_SECRET" in os.environ,
     "docker_socket_present": os.path.exists("/var/run/docker.sock"),
 }
 print("BOUNDARY=" + json.dumps(checks, sort_keys=True), flush=True)
@@ -484,7 +484,7 @@ while True:
         assert container["Config"]["Entrypoint"] == ["python"]
         assert container["Config"]["Healthcheck"]["Test"] == ["NONE"]
         assert not any(
-            item.startswith("AGENTVERIFY_M8_HOST_SECRET=")
+            item.startswith("DONEWITNESS_M8_HOST_SECRET=")
             for item in container["Config"]["Env"]
         )
         assert set(container["NetworkSettings"]["Networks"]) == {
@@ -500,7 +500,7 @@ while True:
                 {"HostIp": "127.0.0.1", "HostPort": str(port)}
             ]
         else:
-            assert application.port_delivery == "agentverify-loopback-relay"
+            assert application.port_delivery == "donewitness-loopback-relay"
             assert active_publication is None
         mounts = container["Mounts"]
         bind_mounts = [mount for mount in mounts if mount["Type"] == "bind"]
@@ -582,7 +582,7 @@ def test_nested_host_submount_is_not_propagated_into_workspace(
                 "tmpfs",
                 "-o",
                 "size=1m",
-                "agentverify-m8-submount",
+                "donewitness-m8-submount",
                 str(nested_mount),
             ),
             stdin=subprocess.DEVNULL,
@@ -712,7 +712,7 @@ def test_docker_cli_interrupt_creates_unknown_receipt_and_cleans_resources(
     command = [
         sys.executable,
         "-m",
-        "agentverify",
+        "donewitness",
         *docker_verify_args(
             plan=PASS_PLAN,
             port=port,

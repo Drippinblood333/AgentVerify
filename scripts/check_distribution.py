@@ -1,4 +1,4 @@
-"""Check AgentVerify wheel and sdist contents using only the standard library."""
+"""Check DoneWitness wheel and sdist contents using only the standard library."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from email.parser import BytesParser
 from io import StringIO
 from pathlib import Path, PurePosixPath
 
-EXPECTED_DISTRIBUTION_NAME = "agentverify-evidence"
-EXPECTED_FILENAME_STEM = "agentverify_evidence"
-EXPECTED_IMPORT_PACKAGE = "agentverify_evidence"
-FORBIDDEN_IMPORT_PACKAGE = "agentverify"
+EXPECTED_DISTRIBUTION_NAME = "donewitness"
+EXPECTED_FILENAME_STEM = "donewitness"
+EXPECTED_IMPORT_PACKAGE = "donewitness"
+FORBIDDEN_IMPORT_PACKAGES = ("agentverify", "agentverify_evidence")
 EXPECTED_VERSION = "0.1.0"
 EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
-EXPECTED_CONSOLE_SCRIPT = "agentverify_evidence.cli:main"
+EXPECTED_CONSOLE_SCRIPT = "donewitness.cli:main"
 EXPECTED_LICENSE_EXPRESSION = "Apache-2.0"
 EXPECTED_PROJECT_URLS = {
     "Homepage": "https://github.com/Drippinblood333/AgentVerify",
@@ -28,7 +28,7 @@ EXPECTED_PROJECT_URLS = {
     "Security": "https://github.com/Drippinblood333/AgentVerify/security/policy",
 }
 FORBIDDEN_PARTS = {
-    ".agentverify",
+    ".donewitness",
     ".git",
     ".github",
     ".mypy_cache",
@@ -83,13 +83,15 @@ def _assert_import_namespace(
         raise ValueError(
             f"{source} does not contain the {EXPECTED_IMPORT_PACKAGE} import package"
         )
-    if any(
-        _contains_import_package(path, FORBIDDEN_IMPORT_PACKAGE, source=source)
-        for path in paths
-    ):
-        raise ValueError(
-            f"{source} exposes forbidden top-level import package {FORBIDDEN_IMPORT_PACKAGE}"
-        )
+    for forbidden_package in FORBIDDEN_IMPORT_PACKAGES:
+        if any(
+            _contains_import_package(path, forbidden_package, source=source)
+            for path in paths
+        ):
+            raise ValueError(
+                f"{source} exposes forbidden top-level import package "
+                f"{forbidden_package}"
+            )
 
 
 def _contains_import_package(
@@ -172,12 +174,12 @@ def _assert_requires_python(value: str | None, *, source: str) -> None:
         raise ValueError(f"unexpected {source} Requires-Python: {value!r}")
 
 
-def _console_script_mapping(entry_points: bytes) -> str | None:
+def _console_script_mapping(entry_points: bytes) -> dict[str, str]:
     parser = configparser.ConfigParser(interpolation=None)
     parser.read_file(StringIO(entry_points.decode("utf-8")))
     if not parser.has_section("console_scripts"):
-        return None
-    return parser.get("console_scripts", "agentverify", fallback=None)
+        return {}
+    return dict(parser.items("console_scripts"))
 
 
 def check_wheel(wheel: Path) -> None:
@@ -223,9 +225,10 @@ def check_wheel(wheel: Path) -> None:
     _assert_package_metadata(metadata, source="wheel")
     _assert_pure_wheel(wheel_metadata)
     _assert_license_contents(license_contents, source="wheel")
-    console_script = _console_script_mapping(entry_points)
-    if console_script != EXPECTED_CONSOLE_SCRIPT:
-        raise ValueError(f"unexpected agentverify console script: {console_script!r}")
+    console_scripts = _console_script_mapping(entry_points)
+    expected_console_scripts = {"donewitness": EXPECTED_CONSOLE_SCRIPT}
+    if console_scripts != expected_console_scripts:
+        raise ValueError(f"unexpected console scripts: {console_scripts!r}")
 
 
 def check_sdist(sdist: Path) -> None:
@@ -268,10 +271,10 @@ def check_sdist(sdist: Path) -> None:
         "/pyproject.toml",
         "/README.md",
         "/LICENSE",
-        "/src/agentverify_evidence/__init__.py",
-        "/src/agentverify_evidence/__main__.py",
-        "/src/agentverify_evidence/cli.py",
-        "/src/agentverify_evidence/cli_result.py",
+        "/src/donewitness/__init__.py",
+        "/src/donewitness/__main__.py",
+        "/src/donewitness/cli.py",
+        "/src/donewitness/cli_result.py",
     )
     missing = [
         suffix
@@ -299,9 +302,12 @@ def main() -> int:
     print(f"Version: {EXPECTED_VERSION}")
     print(f"License-Expression: {EXPECTED_LICENSE_EXPRESSION}")
     print("Requires-Python: >=3.12,<3.15 (exact semantic bounds)")
-    print(f"Console script: agentverify = {EXPECTED_CONSOLE_SCRIPT}")
+    print(f"Console script: donewitness = {EXPECTED_CONSOLE_SCRIPT}")
     print(f"Python import package: {EXPECTED_IMPORT_PACKAGE}")
-    print(f"Forbidden import package absent: {FORBIDDEN_IMPORT_PACKAGE}")
+    print(
+        "Forbidden import packages absent: "
+        + ", ".join(FORBIDDEN_IMPORT_PACKAGES)
+    )
     print("Distribution contents: OK")
     return 0
 

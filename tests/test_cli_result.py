@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, _verification_exit_code
-from agentverify_evidence.cli_result import (
+from donewitness.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, _verification_exit_code
+from donewitness.cli_result import (
     OUTPUT_SCHEMA_VERSION,
     VerifySummary,
     render_verify_summary,
 )
-from agentverify_evidence.domain import Verdict
+from donewitness.domain import Verdict
 
 
 @pytest.mark.parametrize(
@@ -38,9 +38,9 @@ def test_machine_summary_rendering_is_compact_deterministic_json() -> None:
         completed=True,
         exit_code=EXIT_PASS,
         receipt_schema_version=4,
-        receipt_json_path=str(Path("C:/AgentVerify run/receipt.json")),
-        receipt_text_path=str(Path("C:/AgentVerify run/receipt.txt")),
-        evidence_manifest_path=str(Path("C:/AgentVerify run/evidence-manifest.json")),
+        receipt_json_path=str(Path("C:/DoneWitness run/receipt.json")),
+        receipt_text_path=str(Path("C:/DoneWitness run/receipt.txt")),
+        evidence_manifest_path=str(Path("C:/DoneWitness run/evidence-manifest.json")),
     )
 
     rendered = render_verify_summary(summary)

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agentverify_evidence.browser_plan import BrowserVerificationPlan, FillStep
-from agentverify_evidence.plan import PlanValidationError, load_plan, plan_digest
+from donewitness.browser_plan import BrowserVerificationPlan, FillStep
+from donewitness.plan import PlanValidationError, load_plan, plan_digest
 
 VALID_V2_PLAN: dict[str, object] = {
     "schema_version": 2,

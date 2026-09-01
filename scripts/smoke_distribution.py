@@ -1,4 +1,4 @@
-"""Verify an AgentVerify wheel or sdist in an owned, isolated environment."""
+"""Verify a DoneWitness wheel or sdist in an owned, isolated environment."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-EXPECTED_DISTRIBUTION_NAME = "agentverify-evidence"
+EXPECTED_DISTRIBUTION_NAME = "donewitness"
 EXPECTED_VERSION = "0.1.0"
-EXPECTED_VERSION_OUTPUT = f"AgentVerify {EXPECTED_VERSION}"
+EXPECTED_VERSION_OUTPUT = f"DoneWitness {EXPECTED_VERSION}"
 EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
 
 
@@ -22,9 +22,9 @@ def _venv_python(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def _venv_agentverify(venv: Path) -> Path:
+def _venv_donewitness(venv: Path) -> Path:
     return venv / (
-        "Scripts/agentverify.exe" if os.name == "nt" else "bin/agentverify"
+        "Scripts/donewitness.exe" if os.name == "nt" else "bin/donewitness"
     )
 
 
@@ -70,9 +70,9 @@ def _unused_tcp_port() -> int:
 def _assert_installed_source(module_path: Path, venv: Path, repository: Path) -> None:
     resolved = module_path.resolve()
     if not resolved.is_relative_to(venv.resolve()):
-        raise RuntimeError(f"AgentVerify did not import from the smoke environment: {resolved}")
+        raise RuntimeError(f"DoneWitness did not import from the smoke environment: {resolved}")
     if resolved.is_relative_to((repository / "src").resolve()):
-        raise RuntimeError(f"AgentVerify imported from repository source: {resolved}")
+        raise RuntimeError(f"DoneWitness imported from repository source: {resolved}")
 
 
 def _requires_python_is_supported_range(value: str) -> bool:
@@ -87,7 +87,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
     if not resolved_artifact.is_file():
         raise ValueError(f"distribution artifact does not exist: {resolved_artifact}")
 
-    with tempfile.TemporaryDirectory(prefix="agentverify-distribution-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="donewitness-distribution-") as temporary:
         owned_root = Path(temporary).resolve()
         if owned_root.is_relative_to(repository):
             raise RuntimeError("smoke root must be outside the repository checkout")
@@ -100,19 +100,19 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             timeout=300,
         )
         _run([str(python), "-m", "pip", "check"], cwd=owned_root, timeout=60)
-        agentverify = _venv_agentverify(venv)
-        if not agentverify.is_file():
-            raise RuntimeError(f"installed console entrypoint is missing: {agentverify}")
+        donewitness = _venv_donewitness(venv)
+        if not donewitness.is_file():
+            raise RuntimeError(f"installed console entrypoint is missing: {donewitness}")
 
         version = _run(
-            [str(agentverify), "--version"],
+            [str(donewitness), "--version"],
             cwd=owned_root,
             timeout=30,
         ).stdout.strip()
         if version != EXPECTED_VERSION_OUTPUT:
             raise RuntimeError(f"unexpected CLI version: {version!r}")
         _run(
-            [str(agentverify), "--help"],
+            [str(donewitness), "--help"],
             cwd=owned_root,
             timeout=30,
         )
@@ -120,20 +120,24 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             [
                 str(python),
                 "-c",
-                "import agentverify_evidence; from importlib.metadata import metadata; "
-                "print(agentverify_evidence.__file__); "
-                "print(agentverify_evidence.__version__); "
-                "m = metadata('agentverify-evidence'); "
-                "print(m['Requires-Python']); print(m['Name'])",
+                "import donewitness, json; "
+                "from importlib.metadata import distribution; "
+                "print(donewitness.__file__); "
+                "print(donewitness.__version__); "
+                "d = distribution('donewitness'); m = d.metadata; "
+                "print(m['Requires-Python']); print(m['Name']); "
+                "print(json.dumps({e.name: e.value for e in d.entry_points "
+                "if e.group == 'console_scripts'}, sort_keys=True))",
             ],
             cwd=owned_root,
             timeout=30,
         ).stdout.splitlines()
         if (
-            len(probe) != 4
+            len(probe) != 5
             or probe[1] != EXPECTED_VERSION
             or not _requires_python_is_supported_range(probe[2])
             or probe[3] != EXPECTED_DISTRIBUTION_NAME
+            or json.loads(probe[4]) != {"donewitness": "donewitness.cli:main"}
         ):
             raise RuntimeError(f"unexpected installed module probe: {probe!r}")
         installed_module = Path(probe[0])
@@ -142,22 +146,27 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             [
                 str(python),
                 "-c",
-                "try:\n import agentverify\nexcept ModuleNotFoundError:\n pass\n"
-                "else:\n raise SystemExit('old agentverify import namespace is exposed')",
+                "import importlib\n"
+                "for name in ('agentverify', 'agentverify_evidence'):\n"
+                " try:\n  importlib.import_module(name)\n"
+                " except ModuleNotFoundError as exc:\n"
+                "  if exc.name != name: raise\n"
+                " else:\n  raise SystemExit(f'old import namespace is exposed: {name}')",
             ],
             cwd=owned_root,
             timeout=30,
         )
 
         print(f"Artifact: {resolved_artifact.name}")
-        print(f"Console entrypoint: {agentverify.resolve()}")
+        print(f"Console entrypoint: {donewitness.resolve()}")
         print(f"Console --version: {version}")
         print("Console --help: OK")
         print(f"Installed module: {installed_module.resolve()}")
         print(f"Installed version: {probe[1]}")
         print(f"Installed Requires-Python: {probe[2]}")
         print(f"Installed distribution: {probe[3]}")
-        print("Old import namespace: absent")
+        print(f"Installed console scripts: {probe[4]}")
+        print("Old import namespaces absent: agentverify, agentverify_evidence")
         print("pip check: OK")
         if cli_only:
             print("CLI smoke: OK")
@@ -177,7 +186,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
         run_dir = workspace / "run"
         verification = _run(
             [
-                str(agentverify),
+                str(donewitness),
                 "verify",
                 "--plan",
                 "greeting.plan.json",
@@ -214,7 +223,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
                 raise RuntimeError(f"machine summary path is missing: {key}")
         inspection = _run(
             [
-                str(agentverify),
+                str(donewitness),
                 "inspect",
                 "--run-dir",
                 str(run_dir),

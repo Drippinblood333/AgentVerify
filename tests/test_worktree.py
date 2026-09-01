@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import agentverify_evidence.worktree as worktree_module
-from agentverify_evidence.worktree import (
+import donewitness.worktree as worktree_module
+from donewitness.worktree import (
     GitRevisionConfigurationError,
     ManagedGitWorktree,
     resolve_revision,
@@ -35,8 +35,8 @@ def repository(tmp_path: Path) -> tuple[Path, str]:
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init")
-    git(repo, "config", "user.name", "AgentVerify Test")
-    git(repo, "config", "user.email", "agentverify@example.invalid")
+    git(repo, "config", "user.name", "DoneWitness Test")
+    git(repo, "config", "user.email", "donewitness@example.invalid")
     (repo / "source.txt").write_text("revision A\n", encoding="utf-8")
     git(repo, "add", "source.txt")
     git(repo, "commit", "-m", "revision A")

@@ -45,7 +45,7 @@ class GreetingHandler(BaseHTTPRequestHandler):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Serve the AgentVerify greeting demo")
+    parser = argparse.ArgumentParser(description="Serve the DoneWitness greeting demo")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--pid-file", type=Path)

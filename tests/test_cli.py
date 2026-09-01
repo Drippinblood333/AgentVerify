@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify_evidence import __version__
-from agentverify_evidence.cli import EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify_evidence.isolation import DockerIsolationPreflight
+from donewitness import __version__
+from donewitness.cli import EXIT_UNKNOWN, EXIT_USAGE, main
+from donewitness.isolation import DockerIsolationPreflight
 
 VALID_V1_PLAN = {
     "schema_version": 1,
@@ -92,7 +92,7 @@ def test_help_exits_successfully(capsys: CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     assert exc_info.value.code == 0
-    assert "usage: agentverify" in captured.out
+    assert "usage: donewitness" in captured.out
     assert "verify" in captured.out
     assert captured.err == ""
 
@@ -103,7 +103,7 @@ def test_version_exits_successfully(capsys: CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     assert exc_info.value.code == 0
-    assert captured.out == f"AgentVerify {__version__}\n"
+    assert captured.out == f"DoneWitness {__version__}\n"
     assert captured.err == ""
 
 
@@ -367,7 +367,7 @@ def test_application_start_failure_produces_unknown_receipt_without_traceback(
         verify_args(
             plan=plan,
             run_dir=run_dir,
-            app_command=["agentverify-executable-that-does-not-exist"],
+            app_command=["donewitness-executable-that-does-not-exist"],
             output_format="json",
         )
     )
@@ -444,7 +444,7 @@ def test_docker_isolation_unavailable_is_exit_2_before_startup(
     plan = tmp_path / "plan.json"
     write_plan(plan)
     marker = tmp_path / "started.txt"
-    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lambda executable: None)
+    monkeypatch.setattr("donewitness.isolation.shutil.which", lambda executable: None)
 
     exit_code = main(
         verify_args(
@@ -477,11 +477,11 @@ def test_docker_run_directory_inside_source_is_exit_2_before_docker_lookup(
         looked_up = True
         return None
 
-    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lookup)
+    monkeypatch.setattr("donewitness.isolation.shutil.which", lookup)
     exit_code = main(
         verify_args(
             plan=plan,
-            run_dir=Path.cwd() / ".agentverify-m8-must-not-create",
+            run_dir=Path.cwd() / ".donewitness-m8-must-not-create",
             app_command=marker_command(marker),
             isolation="docker",
             isolation_image="python:3.12-slim",
@@ -546,7 +546,7 @@ def test_docker_preexisting_endpoint_is_rejected_before_container_start(
             port=port,
         )
         monkeypatch.setattr(
-            "agentverify_evidence.run.preflight_docker_isolation",
+            "donewitness.run.preflight_docker_isolation",
             lambda **kwargs: preflight,
         )
 
@@ -554,7 +554,7 @@ def test_docker_preexisting_endpoint_is_rejected_before_container_start(
             raise AssertionError("container startup must not occur")
 
         monkeypatch.setattr(
-            "agentverify_evidence.run.DockerManagedApplication.start", unexpected_start
+            "donewitness.run.DockerManagedApplication.start", unexpected_start
         )
         run_dir = tmp_path / "run"
         exit_code = main(

@@ -15,7 +15,7 @@ pre-1.0 package and schema versioning policy.
 | Evidence manifest | schema v1 |
 | CLI | stable exit codes, retained text output, machine-output schema v1 |
 
-Upgrading AgentVerify does not rewrite old run directories. Supported historical receipts remain
+Upgrading DoneWitness does not rewrite old run directories. Supported historical receipts remain
 readable, and durable evidence bundles should be retained independently of the installed package
 version. Consumers should branch on receipt and CLI-output schema versions and ignore unknown
 future machine-summary fields. Undocumented Python classes and internals are not a stable API;

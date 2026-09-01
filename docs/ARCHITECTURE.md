@@ -2,7 +2,7 @@
 
 ## Architectural goal
 
-The smallest useful AgentVerify system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
+The smallest useful DoneWitness system is a local CLI that loads a frozen verification plan, coordinates deterministic verifiers, stores bounded evidence on disk, and emits a proof receipt. The architecture should make incorrect success difficult: domain verdict rules remain explicit, verifier failures remain visible, and no builder-specific SDK participates in the core.
 
 M0 defined these boundaries and contracts. M9 composes versioned Plan v2 execution, bounded direct
 and opt-in Docker application lifecycles, deterministic browser verification, durable evidence
@@ -14,7 +14,7 @@ architecture. M11 release preparation changes packaging and publication metadata
 
 ## System context and trust boundary
 
-The user supplies three things: a worktree to inspect, a command or URL for a locally runnable web application, and a reviewed acceptance plan. The application and its builder-produced tests are **untrusted inputs**. AgentVerify's own verifier code, frozen plan, run metadata, and evidence hashes form the verification side of the boundary.
+The user supplies three things: a worktree to inspect, a command or URL for a locally runnable web application, and a reviewed acceptance plan. The application and its builder-produced tests are **untrusted inputs**. DoneWitness's own verifier code, frozen plan, run metadata, and evidence hashes form the verification side of the boundary.
 
 Direct application commands run with the current user's permissions. M8 adds one optional Docker
 isolation baseline that reduces host exposure but trusts Docker Engine or Docker Desktop, its Linux
@@ -59,8 +59,9 @@ indicator rather than cryptographic attestation.
 
 ### ProofReceipt
 
-The reviewable output for a completed run. Receipt v1 remains byte-compatible with M3. Receipt v2
-adds the Playwright package version, structured source provenance, and the SHA-256 digest of the
+The reviewable output for a completed run. Receipt v1 defines the base frozen criteria, runtime
+environment, completion state, and verdict record. Receipt v2 adds the Playwright package version,
+structured source provenance, and the SHA-256 digest of the
 exact persisted manifest bytes. Receipt v3 preserves those fields and adds structured execution
 metadata: every new run records `isolation_mode`, while Docker runs also record the fixed isolation
 profile, Docker server version, supplied image reference, and resolved local image ID. All versions
@@ -156,12 +157,12 @@ The fixed profile runs as `65534:65534`, drops all capabilities, sets `no-new-pr
 the image healthcheck, and limits memory to 512 MiB, CPU to 1.0, PIDs to 256, `/dev/shm` to 64 MiB,
 and `/tmp` to 64 MiB. Only the verification TCP port is published to host `127.0.0.1`, with the
 same container port; the application must therefore bind `0.0.0.0` internally. The container
-receives only minimal AgentVerify-controlled environment values in addition to the selected
+receives only minimal DoneWitness-controlled environment values in addition to the selected
 image's own declared environment, never arbitrary host variables.
 
 Some Docker Engine configurations retain `HostConfig.PortBindings` but do not activate a host
 mapping for a container attached only to an internal bridge. After proving the exact container
-target accepts TCP, AgentVerify detects this state and creates a bounded stdlib TCP relay bound only
+target accepts TCP, DoneWitness detects this state and creates a bounded stdlib TCP relay bound only
 to `127.0.0.1:<verification-port>` and forwarding only to the exact managed container IP and same
 port. This fallback adds no network, container, host bind mount, Docker-socket access, or external
 listener. It is owned and cleaned by the Docker application lifecycle.
@@ -227,7 +228,7 @@ Creating the disposable worktree temporarily updates Git's administrative worktr
 but the caller HEAD, index, staged/unstaged changes, untracked files, and working files are not part
 of the selected execution root and are not modified. The local Git executable and local Git
 configuration are trusted. Redirecting hooks to an empty directory does not sandbox arbitrary
-checkout filters or other locally configured Git behavior, and AgentVerify does not hydrate or
+checkout filters or other locally configured Git behavior, and DoneWitness does not hydrate or
 otherwise manage Git LFS objects.
 
 Run inspection is read-only. It loads receipt v2, v3, or v4, compares its manifest digest to the current exact
@@ -259,7 +260,7 @@ Linux/Windows support qualification is a release-testing claim, not a new domain
 Once implementation begins, start with a single Python package and only the modules needed by the active milestone:
 
 ```text
-agentverify/
+donewitness/
   application.py     # bounded subprocess lifecycle, output drain, and TCP readiness
   domain.py          # core models and verdict rules
   browser_plan.py    # pure Plan v2 browser procedure models
@@ -305,11 +306,11 @@ Evidence capture timestamps, selected ports in process logs, their derived artif
 resulting manifest digest may differ while criterion outcomes and browser-observation content remain
 stable.
 
-LLMs may later help propose acceptance criteria, translate natural language into a draft plan, or explore an interface for candidate failures. Their output must remain reviewable input: it cannot rewrite frozen criteria, suppress evidence, or directly turn uncertainty into a passing verdict. Provider adapters, if added, stay outside the core and use a provider-neutral request/response boundary. AgentVerify must remain fully useful without any LLM API.
+LLMs may later help propose acceptance criteria, translate natural language into a draft plan, or explore an interface for candidate failures. Their output must remain reviewable input: it cannot rewrite frozen criteria, suppress evidence, or directly turn uncertainty into a passing verdict. Provider adapters, if added, stay outside the core and use a provider-neutral request/response boundary. DoneWitness must remain fully useful without any LLM API.
 
 ## Vendor neutrality
 
-AgentVerify operates on repository state, commands, URLs, plans, observations, and artifacts—not on a coding agent's private API or conversation format. Builder provenance may be optional receipt metadata, but it cannot affect verdict semantics. Integrations for Codex, Claude Code, Cursor, or future agents should only translate their outputs into the same generic task/worktree inputs. No vendor name appears in core identifiers, schemas, or required configuration.
+DoneWitness operates on repository state, commands, URLs, plans, observations, and artifacts—not on a coding agent's private API or conversation format. Builder provenance may be optional receipt metadata, but it cannot affect verdict semantics. Integrations for Codex, Claude Code, Cursor, or future agents should only translate their outputs into the same generic task/worktree inputs. No vendor name appears in core identifiers, schemas, or required configuration.
 
 ## Failure semantics
 
@@ -317,7 +318,7 @@ Unsupported procedure or step syntax is invalid plan input because Plan v2 is st
 browser procedure, `PASS` means every step and declared assertion succeeded. `FAIL` means a supported
 explicit assertion contradicted the criterion. `UNKNOWN` means execution could not establish the
 criterion, including browser infrastructure failure, unreachable navigation, or a fill/click failure
-before an assertion. Unexpected AgentVerify programming bugs still surface rather than being
+before an assertion. Unexpected DoneWitness programming bugs still surface rather than being
 silently converted to `UNKNOWN`. Evidence capture failure is not an application `FAIL`; insufficient
 or invalid durable evidence prevents a conclusive outcome from crossing into the domain result.
 Startup failure, early exit, readiness timeout, interruption, and unreliable cleanup are operational

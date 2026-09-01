@@ -24,8 +24,8 @@ The sequence differs from the initial product sketch in one important way: AI-ge
 
 **Done when:**
 
-- `agentverify --help` and `agentverify --version` work in a clean environment.
-- A placeholder-free `agentverify verify` command accepts a plan path, validates that the file exists, and clearly reports that execution is not yet available.
+- `donewitness --help` and `donewitness --version` work in a clean environment.
+- A placeholder-free `donewitness verify` command accepts a plan path, validates that the file exists, and clearly reports that execution is not yet available.
 - CLI exit-code and error-message conventions are documented and tested.
 - Packaging, linting, type checking, and unit-test commands run locally.
 - No Pydantic domain model, browser automation, or receipt generator is implemented early.
@@ -126,7 +126,7 @@ sandboxing, source mutation, worktree management, or requested-revision verifica
 - The CLI warns on post-snapshot plan changes and mismatched evidence manifests.
 - Repeat-run tests explain or eliminate known nondeterminism in maintained fixtures.
 - Threat model and limitations distinguish integrity indicators from cryptographic attestation.
-- AgentVerify remains usable outside Git.
+- DoneWitness remains usable outside Git.
 
 ## M8 — Optional isolated execution baseline
 
@@ -134,7 +134,7 @@ sandboxing, source mutation, worktree management, or requested-revision verifica
 
 **Implemented boundary:** M8 retains direct execution as the default and adds one optional,
 locally preflighted Docker CLI route for Linux containers. It pins an already-local image ID,
-applies the fixed `agentverify-docker-baseline-v1` filesystem/network/environment/privilege/resource
+applies the fixed `donewitness-docker-baseline-v1` filesystem/network/environment/privilege/resource
 profile, cleans exact managed resources, and records direct or Docker execution in receipt v3. It
 does not claim resistance to Docker/runtime/kernel escape, pull/build images, mutate source, create
 worktrees, select revisions, or provide remote execution.

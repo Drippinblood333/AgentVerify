@@ -5,7 +5,7 @@ are not reserved by repository configuration or pending Trusted Publisher record
 
 ## Hosted release prerequisites
 
-The release-preparation owner gates have been configured and verified:
+The release-preparation GitHub owner gates have been configured and verified:
 
 - GitHub Private Vulnerability Reporting is enabled. Researchers must use the private reporting
   path documented in [SECURITY.md](../SECURITY.md).
@@ -13,12 +13,14 @@ The release-preparation owner gates have been configured and verified:
   self-review is not configured, the wait timer is `0`, and deployment restrictions are not
   configured. Consequently, no manual environment reviewer approval is enforced; this is an owner
   decision and release risk.
-- The pending PyPI Trusted Publisher was verified via owner-provided authenticated PyPI hosted
-  evidence with this exact mapping: distribution `agentverify-evidence`, GitHub owner
-  `Drippinblood333`, repository `AgentVerify`, workflow `release.yml`, environment `pypi`.
-- Immediately before publication, reconfirm both that `agentverify-evidence` remains available on
-  PyPI under normalized project-name semantics and that the publisher configuration still has the
-  exact mapping above. A pending Trusted Publisher does not reserve the project name.
+- The final PyPI Trusted Publisher is not yet configured or verified for the DoneWitness identity.
+  After the GitHub repository is separately renamed, replace the existing pending publisher and
+  positively verify this exact mapping in authenticated PyPI hosted evidence: distribution
+  `donewitness`, GitHub owner `Drippinblood333`, repository `DoneWitness`, workflow `release.yml`,
+  environment `pypi`. Repository configuration or a pending publisher does not reserve a PyPI
+  project name.
+- Immediately before publication, reconfirm both that `donewitness` remains available under
+  normalized PyPI project-name semantics and that the final publisher has the exact mapping above.
 - The workflow explicitly disables the publishing action's optional digital attestations; release
   `SHA256SUMS` remain ordinary download-integrity checksums, not signatures or attestation.
 - All external actions in the release workflow are pinned to reviewed immutable commit SHAs; resolve
@@ -28,22 +30,24 @@ The release-preparation owner gates have been configured and verified:
 
 1. Verify the independently reviewed release-prep head and merge its PR.
 2. Require the first post-merge CI run for the exact new `main` commit to pass.
-3. Reconfirm the private security reporting channel, PyPI namespace, and exact publisher
+3. Complete the separately authorized GitHub repository rename, then replace and positively verify
+   the final Trusted Publisher mapping described above.
+4. Reconfirm the private security reporting channel, PyPI namespace, and exact publisher
    configuration.
-4. Make the explicit release decision.
-5. Create annotated tag `v0.1.0` at the exact reviewed release commit and push only that tag.
-6. Manually dispatch `.github/workflows/release.yml` from that commit with input `v0.1.0`.
-7. Verify Linux/Windows artifact smoke, PyPI project/version/files, GitHub Release notes/files, and
+5. Make the explicit release decision.
+6. Create annotated tag `v0.1.0` at the exact reviewed release commit and push only that tag.
+7. Manually dispatch `.github/workflows/release.yml` from that commit with input `v0.1.0`.
+8. Verify Linux/Windows artifact smoke, PyPI project/version/files, GitHub Release notes/files, and
    `SHA256SUMS`.
-8. In a clean machine or venv run:
+9. In a clean machine or venv run:
 
    ```console
-   python -m pip install agentverify-evidence==0.1.0
+   python -m pip install donewitness==0.1.0
    python -m playwright install chromium
-   agentverify --version
+   donewitness --version
    ```
 
-9. Run the maintained greeting sample and inspect the resulting receipt.
+10. Run the maintained greeting sample and inspect the resulting receipt.
 
 ## Failure and rollback semantics
 

@@ -13,8 +13,8 @@ from typing import cast
 
 import pytest
 
-from agentverify_evidence.application import ApplicationStartError, BoundedOutputDrain
-from agentverify_evidence.isolation import (
+from donewitness.application import ApplicationStartError, BoundedOutputDrain
+from donewitness.isolation import (
     DOCKER_CPU_LIMIT,
     DOCKER_MEMORY_LIMIT,
     DOCKER_PID_LIMIT,
@@ -56,7 +56,7 @@ def install_fake_docker(
     calls: list[tuple[str, ...]] = []
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setattr(
-        "agentverify_evidence.isolation.shutil.which", lambda executable: "/usr/bin/docker"
+        "donewitness.isolation.shutil.which", lambda executable: "/usr/bin/docker"
     )
 
     def fake_run(argv: Sequence[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -83,7 +83,7 @@ def install_fake_docker(
             return result(command, stdout=json.dumps(docker_endpoint))
         raise AssertionError(f"unexpected Docker command: {command}")
 
-    monkeypatch.setattr("agentverify_evidence.isolation.subprocess.run", fake_run)
+    monkeypatch.setattr("donewitness.isolation.subprocess.run", fake_run)
     return calls
 
 
@@ -169,7 +169,7 @@ def test_preflight_rejects_missing_executable_without_invoking_docker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, run_dir = valid_paths(tmp_path)
-    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lambda executable: None)
+    monkeypatch.setattr("donewitness.isolation.shutil.which", lambda executable: None)
 
     with pytest.raises(DockerIsolationConfigurationError, match="executable is unavailable"):
         preflight_docker_isolation(
@@ -283,12 +283,12 @@ def test_preflight_rejects_run_directory_inside_source_before_docker_lookup(
         looked_up = True
         return None
 
-    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lookup)
+    monkeypatch.setattr("donewitness.isolation.shutil.which", lookup)
     with pytest.raises(DockerIsolationConfigurationError, match="outside the source root"):
         preflight_docker_isolation(
             image_reference="python:3.12-slim",
             base_url="http://127.0.0.1:8765",
-            run_dir=source_root / ".agentverify" / "run",
+            run_dir=source_root / ".donewitness" / "run",
             source_root=source_root,
         )
     assert not looked_up
@@ -330,8 +330,8 @@ def test_fixed_docker_argv_pins_image_and_controls_all_boundaries(tmp_path: Path
     argv = _docker_run_argv(
         preflight=preflight,
         app_command=app_command,
-        container_name="agentverify-fixed-app",
-        network_name="agentverify-fixed-net",
+        container_name="donewitness-fixed-app",
+        network_name="donewitness-fixed-net",
     )
 
     assert argv[-len(app_command) - 1 :] == (
@@ -340,7 +340,7 @@ def test_fixed_docker_argv_pins_image_and_controls_all_boundaries(tmp_path: Path
         *app_command[1:],
     )
     assert argv[argv.index("--pull") + 1] == "never"
-    assert argv[argv.index("--network") + 1] == "agentverify-fixed-net"
+    assert argv[argv.index("--network") + 1] == "donewitness-fixed-net"
     assert argv[argv.index("--publish") + 1] == "127.0.0.1:8765:8765/tcp"
     assert argv[argv.index("--user") + 1] == DOCKER_USER
     assert argv[argv.index("--memory") + 1] == DOCKER_MEMORY_LIMIT
@@ -394,15 +394,15 @@ def test_start_failure_after_network_creation_cleans_only_exact_managed_names(
         cleanup_calls.append(tuple(argv))
         return result(argv)
 
-    monkeypatch.setattr("agentverify_evidence.isolation._run_cli", successful_network)
-    monkeypatch.setattr("agentverify_evidence.isolation.subprocess.Popen", failed_popen)
-    monkeypatch.setattr("agentverify_evidence.isolation._run_cleanup_cli", cleanup)
+    monkeypatch.setattr("donewitness.isolation._run_cli", successful_network)
+    monkeypatch.setattr("donewitness.isolation.subprocess.Popen", failed_popen)
+    monkeypatch.setattr("donewitness.isolation._run_cleanup_cli", cleanup)
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._inspect_container_state",
+        "donewitness.isolation._inspect_container_state",
         lambda docker, name: "absent",
     )
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._inspect_network_state",
+        "donewitness.isolation._inspect_network_state",
         lambda docker, name: "absent",
     )
 
@@ -419,8 +419,8 @@ def test_start_failure_after_network_creation_cleans_only_exact_managed_names(
     removed_network = next(
         call[-1] for call in cleanup_calls if call[1:3] == ("network", "rm")
     )
-    assert re.fullmatch(r"agentverify-[0-9a-f]{32}-app", removed_container)
-    assert re.fullmatch(r"agentverify-[0-9a-f]{32}-net", removed_network)
+    assert re.fullmatch(r"donewitness-[0-9a-f]{32}-app", removed_container)
+    assert re.fullmatch(r"donewitness-[0-9a-f]{32}-net", removed_network)
 
 
 def test_stop_finalizes_client_before_cleaning_late_created_resources(
@@ -466,20 +466,20 @@ def test_stop_finalizes_client_before_cleaning_late_created_resources(
 
     def inspect_container(docker: str, name: str) -> str:
         assert docker == "/usr/bin/docker"
-        assert name == "agentverify-fixed-app"
+        assert name == "donewitness-fixed-app"
         events.append("inspect-container")
         return resources["container"]
 
     def inspect_network(docker: str, name: str) -> str:
         assert docker == "/usr/bin/docker"
-        assert name == "agentverify-fixed-net"
+        assert name == "donewitness-fixed-net"
         events.append("inspect-network")
         return resources["network"]
 
     def cleanup(argv: Sequence[str], **_: object) -> subprocess.CompletedProcess[str]:
         command = tuple(argv)
         events.append("cleanup:" + " ".join(command[1:-1]))
-        assert command[-1] in {"agentverify-fixed-app", "agentverify-fixed-net"}
+        assert command[-1] in {"donewitness-fixed-app", "donewitness-fixed-net"}
         if command[1:3] == ("container", "stop"):
             resources["container"] = "stopped"
         elif command[1:4] == ("container", "rm", "--force"):
@@ -496,17 +496,17 @@ def test_stop_finalizes_client_before_cleaning_late_created_resources(
     client = LateCreatingDockerClient()
     application = DockerManagedApplication(
         preflight=preflight,
-        container_name="agentverify-fixed-app",
-        network_name="agentverify-fixed-net",
+        container_name="donewitness-fixed-app",
+        network_name="donewitness-fixed-net",
         process=cast(subprocess.Popen[bytes], client),
         drain=BoundedOutputDrain(max_bytes=4096),
         reader=reader,
     )
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._inspect_container_state", inspect_container
+        "donewitness.isolation._inspect_container_state", inspect_container
     )
-    monkeypatch.setattr("agentverify_evidence.isolation._inspect_network_state", inspect_network)
-    monkeypatch.setattr("agentverify_evidence.isolation._run_cleanup_cli", cleanup)
+    monkeypatch.setattr("donewitness.isolation._inspect_network_state", inspect_network)
+    monkeypatch.setattr("donewitness.isolation._run_cleanup_cli", cleanup)
 
     shutdown = application.stop(grace_seconds=0.1)
 
@@ -566,8 +566,8 @@ def readiness_application(tmp_path: Path, *, port: int) -> DockerManagedApplicat
     )
     return DockerManagedApplication(
         preflight=preflight,
-        container_name="agentverify-fixed-app",
-        network_name="agentverify-fixed-net",
+        container_name="donewitness-fixed-app",
+        network_name="donewitness-fixed-net",
         process=cast(subprocess.Popen[bytes], _AlwaysRunningProcess()),
         drain=BoundedOutputDrain(max_bytes=4096),
         reader=threading.Thread(),
@@ -594,15 +594,15 @@ def test_foreign_listener_after_preflight_never_authorizes_docker_delivery(
             raise OSError("address already in use")
 
         monkeypatch.setattr(
-            "agentverify_evidence.isolation._inspect_container_networking",
+            "donewitness.isolation._inspect_container_networking",
             inspect_without_publication,
         )
         monkeypatch.setattr(
-            "agentverify_evidence.isolation._target_accepts_connection",
+            "donewitness.isolation._target_accepts_connection",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(
-            "agentverify_evidence.isolation._LoopbackTCPRelay.start",
+            "donewitness.isolation._LoopbackTCPRelay.start",
             relay_bind_fails,
         )
 
@@ -634,19 +634,19 @@ def test_fresh_exact_publication_inspection_authorizes_docker_delivery(
     )
 
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._inspect_container_networking",
+        "donewitness.isolation._inspect_container_networking",
         lambda *args, **kwargs: next(inspections),
     )
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._target_accepts_connection",
+        "donewitness.isolation._target_accepts_connection",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "agentverify_evidence.isolation.endpoint_accepts_connection",
+        "donewitness.isolation.endpoint_accepts_connection",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "agentverify_evidence.isolation._LoopbackTCPRelay.start",
+        "donewitness.isolation._LoopbackTCPRelay.start",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("address in use")),
     )
 

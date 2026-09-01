@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify_evidence.application import (
+from donewitness.application import (
     ApplicationStartError,
     ApplicationState,
     ManagedApplication,
@@ -49,7 +49,7 @@ def process_is_running(pid: int) -> bool:
 def test_start_failure_is_narrow_and_actionable() -> None:
     with pytest.raises(ApplicationStartError, match="could not start"):
         ManagedApplication.start(
-            ["agentverify-executable-that-does-not-exist"],
+            ["donewitness-executable-that-does-not-exist"],
             max_log_bytes=1024,
         )
 
