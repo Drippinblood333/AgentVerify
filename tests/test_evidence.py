@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentverify.evidence import (
+from agentverify_evidence.evidence import (
     EVIDENCE_MANIFEST_FILENAME,
     EvidenceArtifact,
     EvidenceIntegrityError,

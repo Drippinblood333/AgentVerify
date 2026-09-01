@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import agentverify.worktree as worktree_module
-from agentverify.worktree import (
+import agentverify_evidence.worktree as worktree_module
+from agentverify_evidence.worktree import (
     GitRevisionConfigurationError,
     ManagedGitWorktree,
     resolve_revision,

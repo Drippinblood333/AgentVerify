@@ -11,40 +11,40 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal
 
-from agentverify import __version__
-from agentverify.application import (
+from agentverify_evidence import __version__
+from agentverify_evidence.application import (
     ApplicationCleanupError,
     ApplicationStartError,
     ManagedApplication,
     ProcessOutput,
     endpoint_accepts_connection,
 )
-from agentverify.browser import BrowserExecutionResult, BrowserVerifier
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.evidence import (
+from agentverify_evidence.browser import BrowserExecutionResult, BrowserVerifier
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import Verdict, VerificationResult
+from agentverify_evidence.evidence import (
     EvidenceError,
     EvidenceKind,
     EvidenceManifest,
     EvidenceStore,
     redact_sensitive_text,
 )
-from agentverify.inspection import (
+from agentverify_evidence.inspection import (
     InspectionInputError,
     RunIntegrityError,
     inspect_run_directory,
     sha256_file,
 )
-from agentverify.isolation import (
+from agentverify_evidence.isolation import (
     DOCKER_PROFILE_NAME,
     DockerIsolationConfigurationError,
     DockerIsolationPreflight,
     DockerManagedApplication,
     preflight_docker_isolation,
 )
-from agentverify.plan import PlanError, load_plan, plan_digest
-from agentverify.provenance import SourceProvenance, capture_source_provenance
-from agentverify.receipt import (
+from agentverify_evidence.plan import PlanError, load_plan, plan_digest
+from agentverify_evidence.provenance import SourceProvenance, capture_source_provenance
+from agentverify_evidence.receipt import (
     CurrentWorktreeSourceSelection,
     DirectExecutionMetadata,
     DockerExecutionMetadata,
@@ -59,7 +59,7 @@ from agentverify.receipt import (
     render_receipt_json,
     render_receipt_text,
 )
-from agentverify.worktree import (
+from agentverify_evidence.worktree import (
     GitRevisionConfigurationError,
     GitWorktreeOperationalError,
     ManagedGitWorktree,

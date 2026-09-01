@@ -120,8 +120,9 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             [
                 str(python),
                 "-c",
-                "import agentverify; from importlib.metadata import metadata; "
-                "print(agentverify.__file__); print(agentverify.__version__); "
+                "import agentverify_evidence; from importlib.metadata import metadata; "
+                "print(agentverify_evidence.__file__); "
+                "print(agentverify_evidence.__version__); "
                 "m = metadata('agentverify-evidence'); "
                 "print(m['Requires-Python']); print(m['Name'])",
             ],
@@ -137,6 +138,16 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
             raise RuntimeError(f"unexpected installed module probe: {probe!r}")
         installed_module = Path(probe[0])
         _assert_installed_source(installed_module, venv, repository)
+        _run(
+            [
+                str(python),
+                "-c",
+                "try:\n import agentverify\nexcept ModuleNotFoundError:\n pass\n"
+                "else:\n raise SystemExit('old agentverify import namespace is exposed')",
+            ],
+            cwd=owned_root,
+            timeout=30,
+        )
 
         print(f"Artifact: {resolved_artifact.name}")
         print(f"Console entrypoint: {agentverify.resolve()}")
@@ -146,6 +157,7 @@ def smoke_distribution(artifact: Path, *, cli_only: bool) -> None:
         print(f"Installed version: {probe[1]}")
         print(f"Installed Requires-Python: {probe[2]}")
         print(f"Installed distribution: {probe[3]}")
+        print("Old import namespace: absent")
         print("pip check: OK")
         if cli_only:
             print("CLI smoke: OK")

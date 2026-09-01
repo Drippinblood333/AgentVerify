@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 
-from agentverify.domain import NonBlankText
+from agentverify_evidence.domain import NonBlankText
 
 _REVISION_PATTERN = r"^[0-9a-f]{40}$"
 _DEFAULT_TIMEOUT_SECONDS = 3.0

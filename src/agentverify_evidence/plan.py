@@ -9,8 +9,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import VerificationPlan
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import VerificationPlan
 
 type SupportedVerificationPlan = VerificationPlan | BrowserVerificationPlan
 

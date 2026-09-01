@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.provenance import capture_source_provenance
+from agentverify_evidence.provenance import capture_source_provenance
 
 
 def git(repo: Path, *args: str) -> str:

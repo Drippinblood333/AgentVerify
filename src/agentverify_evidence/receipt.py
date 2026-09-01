@@ -18,14 +18,14 @@ from pydantic import (
     model_validator,
 )
 
-from agentverify.domain import (
+from agentverify_evidence.domain import (
     NonBlankText,
     Verdict,
     VerificationResult,
     aggregate_verdict,
 )
-from agentverify.plan import SupportedVerificationPlan, plan_digest
-from agentverify.provenance import SourceProvenance
+from agentverify_evidence.plan import SupportedVerificationPlan, plan_digest
+from agentverify_evidence.provenance import SourceProvenance
 
 _DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"
 

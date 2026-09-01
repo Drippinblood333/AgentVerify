@@ -43,12 +43,31 @@ def test_distribution_names_match_public_version_and_pure_python_tag(
 def test_smoke_source_guard_rejects_repository_import(tmp_path: Path) -> None:
     smoke = _load_script("smoke_distribution.py")
     repository = tmp_path / "repository"
-    module = repository / "src" / "agentverify" / "__init__.py"
+    module = repository / "src" / "agentverify_evidence" / "__init__.py"
     module.parent.mkdir(parents=True)
     module.touch()
 
     with pytest.raises(RuntimeError, match="did not import from the smoke environment"):
         smoke._assert_installed_source(module, tmp_path / "venv", repository)
+
+
+def test_distribution_namespace_guard_requires_new_package_and_rejects_old() -> None:
+    checker = _load_script("check_distribution.py")
+
+    checker._assert_import_namespace(
+        ["agentverify_evidence/__init__.py"],
+        source="wheel",
+    )
+    with pytest.raises(ValueError, match="does not contain"):
+        checker._assert_import_namespace(
+            ["nested/agentverify_evidence/__init__.py"],
+            source="wheel",
+        )
+    with pytest.raises(ValueError, match="forbidden top-level import package"):
+        checker._assert_import_namespace(
+            ["agentverify_evidence/__init__.py", "agentverify/__init__.py"],
+            source="wheel",
+        )
 
 
 def test_smoke_uses_the_owned_environment_console_entrypoint(tmp_path: Path) -> None:

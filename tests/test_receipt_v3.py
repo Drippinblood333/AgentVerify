@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import Verdict, VerificationResult
+from agentverify_evidence.provenance import SourceProvenance
+from agentverify_evidence.receipt import (
     DirectExecutionMetadata,
     DockerExecutionMetadata,
     EnvironmentMetadataV2,

@@ -15,15 +15,15 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture, MonkeyPatch
 
-import agentverify.worktree as worktree_module
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify.domain import Verdict
-from agentverify.receipt import (
+import agentverify_evidence.worktree as worktree_module
+from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.receipt import (
     GitWorktreeSourceSelection,
     ProofReceiptV4,
     load_receipt,
 )
-from agentverify.worktree import GitWorktreeOperationalError, ManagedGitWorktree
+from agentverify_evidence.worktree import GitWorktreeOperationalError, ManagedGitWorktree
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 SAMPLE_APP = REPOSITORY_ROOT / "examples" / "greeting_app.py"

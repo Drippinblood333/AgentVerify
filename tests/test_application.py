@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.application import (
+from agentverify_evidence.application import (
     ApplicationStartError,
     ApplicationState,
     ManagedApplication,

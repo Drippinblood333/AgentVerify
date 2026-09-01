@@ -13,8 +13,8 @@ from typing import cast
 
 import pytest
 
-from agentverify.application import ApplicationStartError, BoundedOutputDrain
-from agentverify.isolation import (
+from agentverify_evidence.application import ApplicationStartError, BoundedOutputDrain
+from agentverify_evidence.isolation import (
     DOCKER_CPU_LIMIT,
     DOCKER_MEMORY_LIMIT,
     DOCKER_PID_LIMIT,
@@ -56,7 +56,7 @@ def install_fake_docker(
     calls: list[tuple[str, ...]] = []
     monkeypatch.delenv("DOCKER_HOST", raising=False)
     monkeypatch.setattr(
-        "agentverify.isolation.shutil.which", lambda executable: "/usr/bin/docker"
+        "agentverify_evidence.isolation.shutil.which", lambda executable: "/usr/bin/docker"
     )
 
     def fake_run(argv: Sequence[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -83,7 +83,7 @@ def install_fake_docker(
             return result(command, stdout=json.dumps(docker_endpoint))
         raise AssertionError(f"unexpected Docker command: {command}")
 
-    monkeypatch.setattr("agentverify.isolation.subprocess.run", fake_run)
+    monkeypatch.setattr("agentverify_evidence.isolation.subprocess.run", fake_run)
     return calls
 
 
@@ -169,7 +169,7 @@ def test_preflight_rejects_missing_executable_without_invoking_docker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, run_dir = valid_paths(tmp_path)
-    monkeypatch.setattr("agentverify.isolation.shutil.which", lambda executable: None)
+    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lambda executable: None)
 
     with pytest.raises(DockerIsolationConfigurationError, match="executable is unavailable"):
         preflight_docker_isolation(
@@ -283,7 +283,7 @@ def test_preflight_rejects_run_directory_inside_source_before_docker_lookup(
         looked_up = True
         return None
 
-    monkeypatch.setattr("agentverify.isolation.shutil.which", lookup)
+    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lookup)
     with pytest.raises(DockerIsolationConfigurationError, match="outside the source root"):
         preflight_docker_isolation(
             image_reference="python:3.12-slim",
@@ -394,15 +394,15 @@ def test_start_failure_after_network_creation_cleans_only_exact_managed_names(
         cleanup_calls.append(tuple(argv))
         return result(argv)
 
-    monkeypatch.setattr("agentverify.isolation._run_cli", successful_network)
-    monkeypatch.setattr("agentverify.isolation.subprocess.Popen", failed_popen)
-    monkeypatch.setattr("agentverify.isolation._run_cleanup_cli", cleanup)
+    monkeypatch.setattr("agentverify_evidence.isolation._run_cli", successful_network)
+    monkeypatch.setattr("agentverify_evidence.isolation.subprocess.Popen", failed_popen)
+    monkeypatch.setattr("agentverify_evidence.isolation._run_cleanup_cli", cleanup)
     monkeypatch.setattr(
-        "agentverify.isolation._inspect_container_state",
+        "agentverify_evidence.isolation._inspect_container_state",
         lambda docker, name: "absent",
     )
     monkeypatch.setattr(
-        "agentverify.isolation._inspect_network_state",
+        "agentverify_evidence.isolation._inspect_network_state",
         lambda docker, name: "absent",
     )
 
@@ -503,10 +503,10 @@ def test_stop_finalizes_client_before_cleaning_late_created_resources(
         reader=reader,
     )
     monkeypatch.setattr(
-        "agentverify.isolation._inspect_container_state", inspect_container
+        "agentverify_evidence.isolation._inspect_container_state", inspect_container
     )
-    monkeypatch.setattr("agentverify.isolation._inspect_network_state", inspect_network)
-    monkeypatch.setattr("agentverify.isolation._run_cleanup_cli", cleanup)
+    monkeypatch.setattr("agentverify_evidence.isolation._inspect_network_state", inspect_network)
+    monkeypatch.setattr("agentverify_evidence.isolation._run_cleanup_cli", cleanup)
 
     shutdown = application.stop(grace_seconds=0.1)
 
@@ -594,15 +594,15 @@ def test_foreign_listener_after_preflight_never_authorizes_docker_delivery(
             raise OSError("address already in use")
 
         monkeypatch.setattr(
-            "agentverify.isolation._inspect_container_networking",
+            "agentverify_evidence.isolation._inspect_container_networking",
             inspect_without_publication,
         )
         monkeypatch.setattr(
-            "agentverify.isolation._target_accepts_connection",
+            "agentverify_evidence.isolation._target_accepts_connection",
             lambda *args, **kwargs: True,
         )
         monkeypatch.setattr(
-            "agentverify.isolation._LoopbackTCPRelay.start",
+            "agentverify_evidence.isolation._LoopbackTCPRelay.start",
             relay_bind_fails,
         )
 
@@ -634,19 +634,19 @@ def test_fresh_exact_publication_inspection_authorizes_docker_delivery(
     )
 
     monkeypatch.setattr(
-        "agentverify.isolation._inspect_container_networking",
+        "agentverify_evidence.isolation._inspect_container_networking",
         lambda *args, **kwargs: next(inspections),
     )
     monkeypatch.setattr(
-        "agentverify.isolation._target_accepts_connection",
+        "agentverify_evidence.isolation._target_accepts_connection",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "agentverify.isolation.endpoint_accepts_connection",
+        "agentverify_evidence.isolation.endpoint_accepts_connection",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "agentverify.isolation._LoopbackTCPRelay.start",
+        "agentverify_evidence.isolation._LoopbackTCPRelay.start",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("address in use")),
     )
 

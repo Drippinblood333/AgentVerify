@@ -17,17 +17,17 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify.application import endpoint_accepts_connection
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_SUCCESS, EXIT_UNKNOWN, main
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.isolation import (
+from agentverify_evidence.application import endpoint_accepts_connection
+from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_SUCCESS, EXIT_UNKNOWN, main
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.evidence import EvidenceKind, EvidenceStore
+from agentverify_evidence.isolation import (
     DOCKER_PROFILE_NAME,
     DockerManagedApplication,
     preflight_docker_isolation,
 )
-from agentverify.plan import load_plan, plan_digest
-from agentverify.receipt import (
+from agentverify_evidence.plan import load_plan, plan_digest
+from agentverify_evidence.receipt import (
     DockerExecutionMetadata,
     GitWorktreeSourceSelection,
     ProofReceiptV4,

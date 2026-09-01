@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, _verification_exit_code
-from agentverify.cli_result import (
+from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, _verification_exit_code
+from agentverify_evidence.cli_result import (
     OUTPUT_SCHEMA_VERSION,
     VerifySummary,
     render_verify_summary,
 )
-from agentverify.domain import Verdict
+from agentverify_evidence.domain import Verdict
 
 
 @pytest.mark.parametrize(

@@ -7,15 +7,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentverify.domain import Verdict
-from agentverify.evidence import (
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.evidence import (
     EVIDENCE_MANIFEST_FILENAME,
     EvidenceArtifact,
     EvidenceError,
     EvidenceKind,
     EvidenceStore,
 )
-from agentverify.receipt import (
+from agentverify_evidence.receipt import (
     ProofReceiptV2,
     ProofReceiptV3,
     ProofReceiptV4,

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from agentverify.application import (
+from agentverify_evidence.application import (
     ApplicationCleanupError,
     ApplicationStartError,
     ApplicationState,

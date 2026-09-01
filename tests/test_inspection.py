@@ -8,12 +8,17 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify.cli import EXIT_SUCCESS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify.domain import AcceptanceCriterion, Verdict, VerificationPlan, VerificationResult
-from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.inspection import inspect_run_directory, sha256_file
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from agentverify_evidence.cli import EXIT_SUCCESS, EXIT_UNKNOWN, EXIT_USAGE, main
+from agentverify_evidence.domain import (
+    AcceptanceCriterion,
+    Verdict,
+    VerificationPlan,
+    VerificationResult,
+)
+from agentverify_evidence.evidence import EvidenceKind, EvidenceStore
+from agentverify_evidence.inspection import inspect_run_directory, sha256_file
+from agentverify_evidence.provenance import SourceProvenance
+from agentverify_evidence.receipt import (
     EnvironmentMetadataV2,
     ProofReceiptV2,
     ProofReceiptV3,

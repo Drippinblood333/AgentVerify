@@ -1,7 +1,9 @@
 # Packaging and artifact smoke tests
 
-AgentVerify uses the PyPI distribution name `agentverify-evidence` while retaining the
-`agentverify` import package and console command. Build exactly one pure-Python wheel and one source
+AgentVerify uses the PyPI distribution name `agentverify-evidence`, the Python import package
+`agentverify_evidence`, and the `agentverify` console command. Distribution and import names are
+separate; this project must not install the `agentverify` import package already used by the
+unrelated public `agentverify` distribution. Build exactly one pure-Python wheel and one source
 distribution from the current source tree:
 
 ```console
@@ -12,9 +14,10 @@ python scripts/check_distribution.py dist
 
 Expected backend-produced files are `agentverify_evidence-0.1.0-py3-none-any.whl` and
 `agentverify_evidence-0.1.0.tar.gz`. The content check requires the `agentverify-evidence` name,
-version `0.1.0`, Apache-2.0 license expression/file, project URLs, package source, distribution metadata,
-the console entry point, the backend-produced license, and buildable sdist source while rejecting
-obvious checkout, evidence, environment, secret-named, and temporary-worktree debris.
+version `0.1.0`, Apache-2.0 license expression/file, project URLs, `agentverify_evidence` package
+source, absence of the old `agentverify` package, distribution metadata, the console entry point,
+the backend-produced license, and buildable sdist source while rejecting obvious checkout,
+evidence, environment, secret-named, and temporary-worktree debris.
 
 Run isolated artifact verification with:
 
@@ -24,7 +27,8 @@ python scripts/smoke_distribution.py dist/agentverify_evidence-0.1.0.tar.gz
 ```
 
 The helper creates its own temporary virtual environment and out-of-checkout workspace, installs
-the artifact without the dev extra, runs `pip check`, verifies the import path/version/metadata,
+the artifact without the dev extra, runs `pip check`, verifies the `agentverify_evidence` import
+path/version/metadata and absence of the old `agentverify` import,
 and invokes the installed environment's `agentverify` console entrypoint for `--version`, `--help`,
 the maintained direct Chromium sample with JSON output, and receipt-v4 inspection. It does not use
 a repository-local console script. Use `--cli-only` for the Windows sdist minimum smoke.

@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from agentverify.domain import Verdict
+from agentverify_evidence.domain import Verdict
 
 OUTPUT_SCHEMA_VERSION = 1
 

@@ -52,13 +52,14 @@ dev = [
 ]
 
 [project.scripts]
-agentverify = "agentverify.cli:main"
+agentverify = "agentverify_evidence.cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "agentverify.__version__"}
+version = {attr = "agentverify_evidence.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["agentverify_evidence*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

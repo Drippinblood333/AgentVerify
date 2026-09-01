@@ -3,13 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from agentverify.domain import (
+from agentverify_evidence.domain import (
     AcceptanceCriterion,
     Verdict,
     VerificationPlan,
     aggregate_verdict,
 )
-from agentverify.plan import plan_digest
+from agentverify_evidence.plan import plan_digest
 
 
 def make_plan() -> VerificationPlan:

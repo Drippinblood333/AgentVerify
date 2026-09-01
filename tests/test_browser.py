@@ -9,15 +9,15 @@ from threading import Thread
 
 import pytest
 
-from agentverify.browser import (
+from agentverify_evidence.browser import (
     BaseURLValidationError,
     BrowserEvidenceConfig,
     BrowserVerifier,
 )
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceKind, EvidenceLimits, EvidenceStore
-from agentverify.run import build_browser_verification_results
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.evidence import EvidenceKind, EvidenceLimits, EvidenceStore
+from agentverify_evidence.run import build_browser_verification_results
 
 FIXTURE_HTML = b"""<!doctype html>
 <html lang="en">

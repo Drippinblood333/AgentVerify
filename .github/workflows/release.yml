@@ -48,7 +48,7 @@ jobs:
                   f"tag target {tag_commit} does not equal checked-out commit {head_commit}"
               )
           module = ast.parse(
-              Path("src/agentverify/__init__.py").read_text(encoding="utf-8")
+              Path("src/agentverify_evidence/__init__.py").read_text(encoding="utf-8")
           )
           version = next(
               node.value.value

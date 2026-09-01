@@ -9,10 +9,10 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import Verdict, VerificationResult
+from agentverify_evidence.provenance import SourceProvenance
+from agentverify_evidence.receipt import (
     DirectExecutionMetadata,
     EnvironmentMetadataV2,
     ExternalPlanSource,

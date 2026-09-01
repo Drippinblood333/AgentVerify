@@ -14,9 +14,11 @@ from pathlib import Path, PurePosixPath
 
 EXPECTED_DISTRIBUTION_NAME = "agentverify-evidence"
 EXPECTED_FILENAME_STEM = "agentverify_evidence"
+EXPECTED_IMPORT_PACKAGE = "agentverify_evidence"
+FORBIDDEN_IMPORT_PACKAGE = "agentverify"
 EXPECTED_VERSION = "0.1.0"
 EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
-EXPECTED_CONSOLE_SCRIPT = "agentverify.cli:main"
+EXPECTED_CONSOLE_SCRIPT = "agentverify_evidence.cli:main"
 EXPECTED_LICENSE_EXPRESSION = "Apache-2.0"
 EXPECTED_PROJECT_URLS = {
     "Homepage": "https://github.com/Drippinblood333/AgentVerify",
@@ -66,6 +68,44 @@ def _assert_safe_names(names: list[str]) -> None:
         lower_name = path.name.lower()
         if any(fragment in lower_name for fragment in FORBIDDEN_NAME_FRAGMENTS):
             raise ValueError(f"suspicious distribution filename: {raw_name}")
+
+
+def _assert_import_namespace(
+    names: list[str],
+    *,
+    source: str,
+) -> None:
+    paths = [PurePosixPath(name.replace("\\", "/")) for name in names]
+    if not any(
+        _contains_import_package(path, EXPECTED_IMPORT_PACKAGE, source=source)
+        for path in paths
+    ):
+        raise ValueError(
+            f"{source} does not contain the {EXPECTED_IMPORT_PACKAGE} import package"
+        )
+    if any(
+        _contains_import_package(path, FORBIDDEN_IMPORT_PACKAGE, source=source)
+        for path in paths
+    ):
+        raise ValueError(
+            f"{source} exposes forbidden top-level import package {FORBIDDEN_IMPORT_PACKAGE}"
+        )
+
+
+def _contains_import_package(
+    path: PurePosixPath,
+    package: str,
+    *,
+    source: str,
+) -> bool:
+    if source == "wheel":
+        return bool(path.parts) and path.parts[0] == package
+    if source == "sdist":
+        return any(
+            path.parts[index : index + 2] == ("src", package)
+            for index in range(len(path.parts) - 1)
+        )
+    raise ValueError(f"unsupported distribution source: {source}")
 
 
 def _requires_python(metadata: bytes) -> str | None:
@@ -145,6 +185,10 @@ def check_wheel(wheel: Path) -> None:
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         _assert_safe_names(names)
+        _assert_import_namespace(
+            names,
+            source="wheel",
+        )
         metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
         entry_point_names = [
             name for name in names if name.endswith(".dist-info/entry_points.txt")
@@ -156,7 +200,6 @@ def check_wheel(wheel: Path) -> None:
             name for name in names if name.endswith(".dist-info/licenses/LICENSE")
         ]
         required = {
-            "package": any(name.startswith("agentverify/") for name in names),
             "metadata": len(metadata_names) == 1,
             "entry point": len(entry_point_names) == 1,
             "wheel metadata": len(wheel_metadata_names) == 1,
@@ -217,14 +260,18 @@ def check_sdist(sdist: Path) -> None:
         )
         license_contents = license_file.read() if license_file is not None else b""
     _assert_safe_names(names)
+    _assert_import_namespace(
+        names,
+        source="sdist",
+    )
     required_suffixes = (
         "/pyproject.toml",
         "/README.md",
         "/LICENSE",
-        "/src/agentverify/__init__.py",
-        "/src/agentverify/__main__.py",
-        "/src/agentverify/cli.py",
-        "/src/agentverify/cli_result.py",
+        "/src/agentverify_evidence/__init__.py",
+        "/src/agentverify_evidence/__main__.py",
+        "/src/agentverify_evidence/cli.py",
+        "/src/agentverify_evidence/cli_result.py",
     )
     missing = [
         suffix
@@ -253,6 +300,8 @@ def main() -> int:
     print(f"License-Expression: {EXPECTED_LICENSE_EXPRESSION}")
     print("Requires-Python: >=3.12,<3.15 (exact semantic bounds)")
     print(f"Console script: agentverify = {EXPECTED_CONSOLE_SCRIPT}")
+    print(f"Python import package: {EXPECTED_IMPORT_PACKAGE}")
+    print(f"Forbidden import package absent: {FORBIDDEN_IMPORT_PACKAGE}")
     print("Distribution contents: OK")
     return 0
 

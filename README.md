@@ -59,9 +59,10 @@ python -m playwright install chromium
 agentverify --version
 ```
 
-The AgentVerify brand, `agentverify` Python import package, and `agentverify` console command retain
-their names. The PyPI distribution is `agentverify-evidence` because the normalized `agentverify`
-distribution namespace is owned by a different project.
+The product remains AgentVerify, the PyPI distribution is `agentverify-evidence`, the Python import
+package is `agentverify_evidence`, and the console command remains `agentverify`. Distribution and
+import names are separate: the unrelated `agentverify` distribution already installs the
+top-level `agentverify` import package, so AgentVerify does not install or expose that package.
 
 `pip install agentverify` installs a different project; it does not install AgentVerify.
 

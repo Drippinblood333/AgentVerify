@@ -6,9 +6,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import AcceptanceCriterion, Verdict, VerificationPlan, VerificationResult
-from agentverify.receipt import (
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.domain import (
+    AcceptanceCriterion,
+    Verdict,
+    VerificationPlan,
+    VerificationResult,
+)
+from agentverify_evidence.receipt import (
     EnvironmentMetadata,
     ProofReceipt,
     ReceiptCriterionResult,

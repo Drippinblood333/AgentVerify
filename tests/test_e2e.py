@@ -16,13 +16,13 @@ from typing import Any, cast
 import pytest
 from pytest import CaptureFixture
 
-from agentverify.application import endpoint_accepts_connection
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.inspection import RunIntegrityError, sha256_file
-from agentverify.plan import load_plan, plan_digest
-from agentverify.receipt import (
+from agentverify_evidence.application import endpoint_accepts_connection
+from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, main
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.evidence import EvidenceKind, EvidenceStore
+from agentverify_evidence.inspection import RunIntegrityError, sha256_file
+from agentverify_evidence.plan import load_plan, plan_digest
+from agentverify_evidence.receipt import (
     CurrentWorktreeSourceSelection,
     DirectExecutionMetadata,
     ProofReceiptV4,
@@ -558,7 +558,7 @@ def test_final_self_check_failure_never_reports_successful_pass(
     def fail_self_check(run_dir: Path) -> None:
         raise RunIntegrityError(f"forced self-check mismatch in {run_dir.name}")
 
-    monkeypatch.setattr("agentverify.run.inspect_run_directory", fail_self_check)
+    monkeypatch.setattr("agentverify_evidence.run.inspect_run_directory", fail_self_check)
     port = unused_tcp_port()
     run_dir = tmp_path / "self-check-run"
     pid_file = tmp_path / "self-check.pid"

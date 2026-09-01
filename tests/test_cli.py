@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify import __version__
-from agentverify.cli import EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify.isolation import DockerIsolationPreflight
+from agentverify_evidence import __version__
+from agentverify_evidence.cli import EXIT_UNKNOWN, EXIT_USAGE, main
+from agentverify_evidence.isolation import DockerIsolationPreflight
 
 VALID_V1_PLAN = {
     "schema_version": 1,
@@ -444,7 +444,7 @@ def test_docker_isolation_unavailable_is_exit_2_before_startup(
     plan = tmp_path / "plan.json"
     write_plan(plan)
     marker = tmp_path / "started.txt"
-    monkeypatch.setattr("agentverify.isolation.shutil.which", lambda executable: None)
+    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lambda executable: None)
 
     exit_code = main(
         verify_args(
@@ -477,7 +477,7 @@ def test_docker_run_directory_inside_source_is_exit_2_before_docker_lookup(
         looked_up = True
         return None
 
-    monkeypatch.setattr("agentverify.isolation.shutil.which", lookup)
+    monkeypatch.setattr("agentverify_evidence.isolation.shutil.which", lookup)
     exit_code = main(
         verify_args(
             plan=plan,
@@ -546,7 +546,7 @@ def test_docker_preexisting_endpoint_is_rejected_before_container_start(
             port=port,
         )
         monkeypatch.setattr(
-            "agentverify.run.preflight_docker_isolation",
+            "agentverify_evidence.run.preflight_docker_isolation",
             lambda **kwargs: preflight,
         )
 
@@ -554,7 +554,7 @@ def test_docker_preexisting_endpoint_is_rejected_before_container_start(
             raise AssertionError("container startup must not occur")
 
         monkeypatch.setattr(
-            "agentverify.run.DockerManagedApplication.start", unexpected_start
+            "agentverify_evidence.run.DockerManagedApplication.start", unexpected_start
         )
         run_dir = tmp_path / "run"
         exit_code = main(

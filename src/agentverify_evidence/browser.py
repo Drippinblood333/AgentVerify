@@ -21,7 +21,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from agentverify.browser_plan import (
+from agentverify_evidence.browser_plan import (
     AssertVisibleStep,
     BrowserAcceptanceCriterion,
     BrowserVerificationPlan,
@@ -29,8 +29,8 @@ from agentverify.browser_plan import (
     FillStep,
     NavigateStep,
 )
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceError, EvidenceKind, EvidenceStore
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.evidence import EvidenceError, EvidenceKind, EvidenceStore
 
 
 class BaseURLValidationError(ValueError):

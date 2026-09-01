@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.plan import (
+from agentverify_evidence.plan import (
     PlanEncodingError,
     PlanFileError,
     PlanJSONError,

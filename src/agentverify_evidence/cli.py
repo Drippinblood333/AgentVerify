@@ -7,18 +7,18 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agentverify import __version__
-from agentverify.browser import BaseURLValidationError
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.cli_result import build_verify_summary, render_verify_summary
-from agentverify.domain import Verdict
-from agentverify.inspection import (
+from agentverify_evidence import __version__
+from agentverify_evidence.browser import BaseURLValidationError
+from agentverify_evidence.browser_plan import BrowserVerificationPlan
+from agentverify_evidence.cli_result import build_verify_summary, render_verify_summary
+from agentverify_evidence.domain import Verdict
+from agentverify_evidence.inspection import (
     InspectionInputError,
     RunIntegrityError,
     inspect_run_directory,
 )
-from agentverify.plan import PlanError, load_plan
-from agentverify.run import (
+from agentverify_evidence.plan import PlanError, load_plan
+from agentverify_evidence.run import (
     RunConfigurationError,
     RunOperationalError,
     verify_local_application,

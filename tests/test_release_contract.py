@@ -6,9 +6,9 @@ import re
 import tomllib
 from pathlib import Path
 
-from agentverify import __version__
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE
-from agentverify.cli_result import OUTPUT_SCHEMA_VERSION
+from agentverify_evidence import __version__
+from agentverify_evidence.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE
+from agentverify_evidence.cli_result import OUTPUT_SCHEMA_VERSION
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
@@ -38,6 +38,14 @@ def test_declared_python_support_matches_release_matrix() -> None:
     assert project["license-files"] == ["LICENSE"]
     assert project["authors"] == [{"name": "AgentVerify contributors"}]
     assert project["dependencies"] == ["playwright>=1.61,<2", "pydantic>=2,<3"]
+    assert project["scripts"] == {"agentverify": "agentverify_evidence.cli:main"}
+    assert pyproject["tool"]["setuptools"]["dynamic"]["version"] == {
+        "attr": "agentverify_evidence.__version__"
+    }
+    assert pyproject["tool"]["setuptools"]["packages"]["find"] == {
+        "where": ["src"],
+        "include": ["agentverify_evidence*"],
+    }
     assert project["urls"] == {
         "Homepage": "https://github.com/Drippinblood333/AgentVerify",
         "Repository": "https://github.com/Drippinblood333/AgentVerify",
@@ -91,7 +99,10 @@ def test_release_facing_install_instructions_use_the_public_distribution() -> No
 
 def test_core_source_contains_no_ci_vendor_contract() -> None:
     forbidden = ("GITHUB_", "GITLAB_", "JENKINS_", "BUILD_BUILDID")
-    for source in (REPOSITORY_ROOT / "src" / "agentverify").glob("*.py"):
+    sources = list((REPOSITORY_ROOT / "src" / "agentverify_evidence").glob("*.py"))
+    assert sources
+    assert not (REPOSITORY_ROOT / "src" / "agentverify").exists()
+    for source in sources:
         content = source.read_text(encoding="utf-8")
         assert not any(token in content for token in forbidden), source
 

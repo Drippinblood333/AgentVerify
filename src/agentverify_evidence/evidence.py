@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-from agentverify.domain import NonBlankText
+from agentverify_evidence.domain import NonBlankText
 
 EVIDENCE_MANIFEST_FILENAME = "evidence-manifest.json"
 _DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"

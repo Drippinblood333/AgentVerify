@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.plan import load_plan, plan_digest
-from agentverify.run import detect_plan_drift
+from agentverify_evidence.plan import load_plan, plan_digest
+from agentverify_evidence.run import detect_plan_drift
 
 PLAN = {
     "schema_version": 2,
