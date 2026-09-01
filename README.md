@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: v0.1.0 release preparation.** The proposed v0.1 is an early public, CLI-first release
+> **v0.1.0 scope.** AgentVerify is an early CLI-first release
 > for locally runnable web applications. AgentVerify can run one complete local verification flow, record
 > source provenance when Git is available, bind versioned receipts to persisted evidence, inspect
 > an existing run for integrity mismatches, and optionally run an application through a controlled
@@ -23,7 +23,7 @@ Its guiding ideas are:
 
 ## Development status
 
-The proposed v0.1.0 includes:
+v0.1.0 includes:
 
 - an installable Python 3.12–3.14 package;
 - `agentverify --help` and `agentverify --version`; and
@@ -405,4 +405,4 @@ The first release is deliberately limited to **locally runnable web applications
 
 The documented CLI exit codes and versioned plan, receipt, evidence-manifest, and machine-output
 formats are the supported compatibility surfaces. Undocumented Python internals are not a stable
-API before 1.0. Publication of v0.1.0 remains subject to the explicit release ceremony.
+API before 1.0.

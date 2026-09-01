@@ -6,9 +6,7 @@ All notable user-visible changes to AgentVerify are documented here. The format 
 
 ## [Unreleased]
 
-- Public release remains pending independent review and the explicit release ceremony.
-
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-01
 
 ### Added
 
