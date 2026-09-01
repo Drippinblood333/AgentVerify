@@ -169,12 +169,11 @@ does not fetch, clone, pull, prune globally, support submodules, or start M10 re
 
 **Outcome:** Stabilize the local CLI for generic CI use and prepare a trustworthy release candidate.
 
-**Implemented boundary on this branch:** M10 adds a separate machine-output schema v1 for finalized
+**Landed boundary:** M10 adds a separate machine-output schema v1 for finalized
 receipt-v4 bundles, keeps the text/exit/verdict contracts intact, qualifies the selected Linux and
 Windows/Python matrices, builds and clean-installs wheel/sdist artifacts, and documents CI,
 security/privacy, failure, compatibility, and packaging boundaries. It adds no verifier, receipt
-schema, verdict semantics, publishing path, tag, or public release claim. M10 remains awaiting
-independent review and is not marked globally complete here.
+schema, verdict semantics, publishing path, tag, or public release claim. M10 is landed and complete.
 
 **Done when:**
 
@@ -187,6 +186,11 @@ independent review and is not marked globally complete here.
 ## M11 — Public v0.1 release
 
 **Outcome:** Publish the smallest credible evidence-first verifier for local web applications.
+
+**Release-preparation status on this branch:** repository metadata, public documentation, and the
+manual release workflow are implemented. Publication remains pending independent review, an
+approved private security reporting channel, and an explicit release decision. No post-v0.1
+experiment has started.
 
 **Done when:**
 

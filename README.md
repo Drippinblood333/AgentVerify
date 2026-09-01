@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
 
-> **Status: early development.** AgentVerify can run one complete local verification flow, record
+> **Status: v0.1.0 release preparation.** The proposed v0.1 is an early public, CLI-first release
+> for locally runnable web applications. AgentVerify can run one complete local verification flow, record
 > source provenance when Git is available, bind versioned receipts to persisted evidence, inspect
 > an existing run for integrity mismatches, and optionally run an application through a controlled
 > local Docker isolation baseline or from one disposable selected-revision Git worktree.
@@ -22,9 +23,9 @@ Its guiding ideas are:
 
 ## Development status
 
-Currently implemented:
+The proposed v0.1.0 includes:
 
-- an installable Python 3.12+ package;
+- an installable Python 3.12–3.14 package;
 - `agentverify --help` and `agentverify --version`; and
 - strict validation of versioned JSON verification plans;
 - deterministic plan digests; and
@@ -50,8 +51,21 @@ fresh browser context. Artifacts live beneath a caller-supplied run directory us
 relative paths. A browser outcome becomes conclusive only after its referenced evidence, including
 the baseline browser observation, passes path, size, and SHA-256 checks.
 
-Install the package and development tools from a local checkout, then install
-Playwright-managed Chromium for browser verification:
+Install the public distribution, then install Playwright-managed Chromium for browser verification:
+
+```console
+python -m pip install agentverify-evidence
+python -m playwright install chromium
+agentverify --version
+```
+
+The AgentVerify brand, `agentverify` Python import package, and `agentverify` console command retain
+their names. The PyPI distribution is `agentverify-evidence` because the normalized `agentverify`
+distribution namespace is owned by a different project.
+
+`pip install agentverify` installs a different project; it does not install AgentVerify.
+
+For contributor/source installation, clone the repository and use:
 
 ```console
 python -m pip install -e ".[dev]"
@@ -382,6 +396,13 @@ The first release is deliberately limited to **locally runnable web applications
 - [Failure modes](docs/FAILURE_MODES.md)
 - [Compatibility](docs/COMPATIBILITY.md)
 - [Packaging](docs/PACKAGING.md)
+- [Versioning policy](docs/VERSIONING.md)
+- [Release runbook](docs/RELEASE.md)
+- [v0.1.0 release notes](docs/releases/v0.1.0.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 - [Contributor and coding-agent rules](AGENTS.md)
 
-No public release or stable API exists yet. See the roadmap for what each milestone will actually deliver.
+The documented CLI exit codes and versioned plan, receipt, evidence-manifest, and machine-output
+formats are the supported compatibility surfaces. Undocumented Python internals are not a stable
+API before 1.0. Publication of v0.1.0 remains subject to the explicit release ceremony.

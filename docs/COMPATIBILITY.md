@@ -1,6 +1,7 @@
-# v0.1 release-candidate compatibility
+# v0.1 compatibility
 
-This is the M10 qualification contract, not a final public semantic-versioning policy.
+This is the public v0.1 qualification contract. See [VERSIONING.md](VERSIONING.md) for the
+pre-1.0 package and schema versioning policy.
 
 | Area | v0.1 qualification |
 | --- | --- |

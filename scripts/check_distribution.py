@@ -7,13 +7,24 @@ import configparser
 import tarfile
 import zipfile
 from email import policy
+from email.message import Message
 from email.parser import BytesParser
 from io import StringIO
 from pathlib import Path, PurePosixPath
 
-EXPECTED_VERSION = "0.1.0.dev0"
+EXPECTED_DISTRIBUTION_NAME = "agentverify-evidence"
+EXPECTED_FILENAME_STEM = "agentverify_evidence"
+EXPECTED_VERSION = "0.1.0"
 EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
 EXPECTED_CONSOLE_SCRIPT = "agentverify.cli:main"
+EXPECTED_LICENSE_EXPRESSION = "Apache-2.0"
+EXPECTED_PROJECT_URLS = {
+    "Homepage": "https://github.com/Drippinblood333/AgentVerify",
+    "Repository": "https://github.com/Drippinblood333/AgentVerify",
+    "Issues": "https://github.com/Drippinblood333/AgentVerify/issues",
+    "Changelog": "https://github.com/Drippinblood333/AgentVerify/blob/main/CHANGELOG.md",
+    "Security": "https://github.com/Drippinblood333/AgentVerify/security/policy",
+}
 FORBIDDEN_PARTS = {
     ".agentverify",
     ".git",
@@ -38,8 +49,8 @@ def distribution_files(dist_dir: Path) -> tuple[Path, Path]:
             f"expected exactly one wheel and one sdist, found {len(wheels)} wheel(s) "
             f"and {len(sdists)} sdist(s)"
         )
-    expected_stem = f"agentverify-{EXPECTED_VERSION}"
-    if wheels[0].name != f"agentverify-{EXPECTED_VERSION}-py3-none-any.whl":
+    expected_stem = f"{EXPECTED_FILENAME_STEM}-{EXPECTED_VERSION}"
+    if wheels[0].name != f"{expected_stem}-py3-none-any.whl":
         raise ValueError(f"unexpected wheel filename: {wheels[0].name}")
     if sdists[0].name != f"{expected_stem}.tar.gz":
         raise ValueError(f"unexpected sdist filename: {sdists[0].name}")
@@ -60,6 +71,55 @@ def _assert_safe_names(names: list[str]) -> None:
 def _requires_python(metadata: bytes) -> str | None:
     message = BytesParser(policy=policy.default).parsebytes(metadata)
     return message.get("Requires-Python")
+
+
+def _metadata_message(metadata: bytes) -> Message:
+    return BytesParser(policy=policy.default).parsebytes(metadata)
+
+
+def _project_urls(metadata: bytes) -> dict[str, str]:
+    message = _metadata_message(metadata)
+    parsed: dict[str, str] = {}
+    for value in message.get_all("Project-URL", []):
+        label, separator, url = value.partition(",")
+        if not separator:
+            raise ValueError(f"invalid Project-URL metadata: {value!r}")
+        parsed[label.strip()] = url.strip()
+    return parsed
+
+
+def _assert_package_metadata(metadata: bytes, *, source: str) -> None:
+    message = _metadata_message(metadata)
+    expected = {
+        "Name": EXPECTED_DISTRIBUTION_NAME,
+        "Version": EXPECTED_VERSION,
+        "License-Expression": EXPECTED_LICENSE_EXPRESSION,
+    }
+    for field, value in expected.items():
+        if message.get(field) != value:
+            raise ValueError(
+                f"unexpected {source} {field}: {message.get(field)!r}"
+            )
+    license_files = set(message.get_all("License-File", []))
+    if "LICENSE" not in license_files:
+        raise ValueError(f"{source} metadata does not declare LICENSE")
+    if _project_urls(metadata) != EXPECTED_PROJECT_URLS:
+        raise ValueError(f"unexpected {source} Project-URL metadata")
+    _assert_requires_python(message.get("Requires-Python"), source=source)
+
+
+def _assert_license_contents(contents: bytes, *, source: str) -> None:
+    text = contents.decode("utf-8")
+    if "Apache License" not in text or "Version 2.0, January 2004" not in text:
+        raise ValueError(f"{source} LICENSE is not the expected Apache-2.0 text")
+
+
+def _assert_pure_wheel(metadata: bytes) -> None:
+    message = _metadata_message(metadata)
+    if message.get("Root-Is-Purelib") != "true":
+        raise ValueError("wheel does not declare Root-Is-Purelib: true")
+    if message.get_all("Tag", []) != ["py3-none-any"]:
+        raise ValueError(f"unexpected wheel compatibility tag: {message.get_all('Tag', [])!r}")
 
 
 def _assert_requires_python(value: str | None, *, source: str) -> None:
@@ -89,21 +149,37 @@ def check_wheel(wheel: Path) -> None:
         entry_point_names = [
             name for name in names if name.endswith(".dist-info/entry_points.txt")
         ]
+        wheel_metadata_names = [
+            name for name in names if name.endswith(".dist-info/WHEEL")
+        ]
+        license_names = [
+            name for name in names if name.endswith(".dist-info/licenses/LICENSE")
+        ]
         required = {
             "package": any(name.startswith("agentverify/") for name in names),
             "metadata": len(metadata_names) == 1,
             "entry point": len(entry_point_names) == 1,
-            "license": any(".dist-info/licenses/LICENSE" in name for name in names),
+            "wheel metadata": len(wheel_metadata_names) == 1,
+            "license": len(license_names) == 1,
         }
         metadata = archive.read(metadata_names[0]) if len(metadata_names) == 1 else b""
         entry_points = (
             archive.read(entry_point_names[0]) if len(entry_point_names) == 1 else b""
         )
+        wheel_metadata = (
+            archive.read(wheel_metadata_names[0])
+            if len(wheel_metadata_names) == 1
+            else b""
+        )
+        license_contents = (
+            archive.read(license_names[0]) if len(license_names) == 1 else b""
+        )
     missing = [label for label, present in required.items() if not present]
     if missing:
         raise ValueError(f"wheel is missing: {', '.join(missing)}")
-    requires_python = _requires_python(metadata)
-    _assert_requires_python(requires_python, source="wheel")
+    _assert_package_metadata(metadata, source="wheel")
+    _assert_pure_wheel(wheel_metadata)
+    _assert_license_contents(license_contents, source="wheel")
     console_script = _console_script_mapping(entry_points)
     if console_script != EXPECTED_CONSOLE_SCRIPT:
         raise ValueError(f"unexpected agentverify console script: {console_script!r}")
@@ -116,7 +192,9 @@ def check_sdist(sdist: Path) -> None:
         metadata_members = [
             member
             for member in archive.getmembers()
-            if PurePosixPath(member.name).parent.name.startswith("agentverify-")
+            if PurePosixPath(member.name).parent.name.startswith(
+                f"{EXPECTED_FILENAME_STEM}-"
+            )
             and PurePosixPath(member.name).name == "PKG-INFO"
         ]
         metadata_file = (
@@ -125,6 +203,19 @@ def check_sdist(sdist: Path) -> None:
             else None
         )
         metadata = metadata_file.read() if metadata_file is not None else b""
+        license_members = [
+            member
+            for member in archive.getmembers()
+            if PurePosixPath(member.name).name == "LICENSE"
+            and PurePosixPath(member.name).parent.name
+            == f"{EXPECTED_FILENAME_STEM}-{EXPECTED_VERSION}"
+        ]
+        license_file = (
+            archive.extractfile(license_members[0])
+            if len(license_members) == 1
+            else None
+        )
+        license_contents = license_file.read() if license_file is not None else b""
     _assert_safe_names(names)
     required_suffixes = (
         "/pyproject.toml",
@@ -142,8 +233,10 @@ def check_sdist(sdist: Path) -> None:
     ]
     if missing:
         raise ValueError(f"sdist is missing: {', '.join(missing)}")
-    requires_python = _requires_python(metadata)
-    _assert_requires_python(requires_python, source="sdist")
+    _assert_package_metadata(metadata, source="sdist")
+    if len(license_members) != 1:
+        raise ValueError("sdist must contain exactly one root LICENSE")
+    _assert_license_contents(license_contents, source="sdist")
 
 
 def main() -> int:
@@ -155,6 +248,9 @@ def main() -> int:
     check_sdist(sdist)
     print(f"Wheel: {wheel.name}")
     print(f"Sdist: {sdist.name}")
+    print(f"Name: {EXPECTED_DISTRIBUTION_NAME}")
+    print(f"Version: {EXPECTED_VERSION}")
+    print(f"License-Expression: {EXPECTED_LICENSE_EXPRESSION}")
     print("Requires-Python: >=3.12,<3.15 (exact semantic bounds)")
     print(f"Console script: agentverify = {EXPECTED_CONSOLE_SCRIPT}")
     print("Distribution contents: OK")

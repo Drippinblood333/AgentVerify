@@ -124,6 +124,7 @@ def test_browser_verifier_accepts_loopback_http_origins(base_url: str) -> None:
 
 
 def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -> None:
+    outcome_timeout_ms = 2_000
     plan = browser_plan(
         [
             {
@@ -134,6 +135,7 @@ def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -
                     {"type": "fill", "selector": "#name", "value": "Ada"},
                     {"type": "click", "selector": "#greet"},
                     {"type": "assert_visible", "selector": "#message"},
+                    timeout_ms=outcome_timeout_ms,
                 ),
             },
             {
@@ -142,6 +144,7 @@ def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -
                 "procedure": procedure(
                     {"type": "navigate", "path": "/"},
                     {"type": "assert_visible", "selector": "#clean-context"},
+                    timeout_ms=outcome_timeout_ms,
                 ),
             },
             {
@@ -150,6 +153,7 @@ def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -
                 "procedure": procedure(
                     {"type": "navigate", "path": "/"},
                     {"type": "assert_visible", "selector": "#never-visible"},
+                    timeout_ms=outcome_timeout_ms,
                 ),
             },
             {
@@ -159,6 +163,7 @@ def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -
                     {"type": "navigate", "path": "/"},
                     {"type": "click", "selector": "#missing-button"},
                     {"type": "assert_visible", "selector": "#message"},
+                    timeout_ms=outcome_timeout_ms,
                 ),
             },
         ]
@@ -172,12 +177,21 @@ def test_real_browser_outcomes_order_and_context_isolation(local_app_url: str) -
         "AC-FAIL",
         "AC-UNKNOWN",
     ]
+    result_diagnostics = [
+        {
+            "criterion_id": result.criterion_id,
+            "verdict": result.verdict.value,
+            "reason": result.reason,
+            "failed_step_index": result.failed_step_index,
+        }
+        for result in results
+    ]
     assert [result.verdict for result in results] == [
         Verdict.PASS,
         Verdict.PASS,
         Verdict.FAIL,
         Verdict.UNKNOWN,
-    ]
+    ], result_diagnostics
     assert results[0].reason == "all 4 browser steps completed and assertions passed"
     assert results[2].reason == (
         "assert_visible failed at step 2 for selector '#never-visible'"

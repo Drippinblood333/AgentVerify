@@ -1,7 +1,8 @@
 # Security and privacy boundaries
 
-This document describes runtime behavior for the early-development v0.1 release-candidate line. It
-is not the public vulnerability-reporting policy, which is deferred to M11.
+This document describes runtime behavior for the v0.1 line. The public vulnerability-reporting
+policy and private GitHub reporting path are in the repository root
+[SECURITY.md](../SECURITY.md).
 
 ## Execution modes
 
