@@ -530,7 +530,7 @@ class DockerManagedApplication:
         return True
 
     def stop(self, *, grace_seconds: float = 1.0) -> ShutdownResult:
-        """Stop/remove the exact container and network, then finalize the client."""
+        """Finalize the attached client, then stop/remove its exact resources."""
         errors: list[str] = []
         force_killed = False
         docker = self._preflight.docker_executable
@@ -542,6 +542,15 @@ class DockerManagedApplication:
                 errors.append(str(error))
             finally:
                 self._relay = None
+
+        # The attached ``docker run`` client owns the container-creation path. It must
+        # be quiesced before the authoritative resource inspection, otherwise a fast
+        # readiness timeout can inspect "absent" and return before late creation.
+        try:
+            exit_code = self._finalize_client(grace_seconds=grace_seconds)
+        except ApplicationCleanupError as error:
+            exit_code = self._process.poll() or -1
+            errors.append(str(error))
 
         container_state = _inspect_container_state(docker, self.container_name)
         remove_result: subprocess.CompletedProcess[str] | None = None
@@ -595,11 +604,6 @@ class DockerManagedApplication:
         if network_state != "absent":
             errors.append("managed Docker network removal could not be confirmed")
 
-        try:
-            exit_code = self._finalize_client(grace_seconds=grace_seconds)
-        except ApplicationCleanupError as error:
-            exit_code = self._process.poll() or -1
-            errors.append(str(error))
         try:
             self._join_reader()
         except ApplicationCleanupError as error:

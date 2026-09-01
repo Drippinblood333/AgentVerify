@@ -423,6 +423,99 @@ def test_start_failure_after_network_creation_cleans_only_exact_managed_names(
     assert re.fullmatch(r"agentverify-[0-9a-f]{32}-net", removed_network)
 
 
+def test_stop_finalizes_client_before_cleaning_late_created_resources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_root, _ = valid_paths(tmp_path)
+    preflight = DockerIsolationPreflight(
+        docker_executable="/usr/bin/docker",
+        docker_server_version="28.3.1",
+        image_reference="python:3.12-slim",
+        image_id=IMAGE_ID,
+        source_root=source_root.resolve(),
+        port=8765,
+    )
+    events: list[str] = []
+    resources = {"container": "absent", "network": "present"}
+
+    class LateCreatingDockerClient:
+        def __init__(self) -> None:
+            self.alive = True
+            self.wait_calls = 0
+
+        def poll(self) -> int | None:
+            return None if self.alive else 143
+
+        def wait(self, timeout: float) -> int:
+            self.wait_calls += 1
+            if self.wait_calls == 1:
+                events.append("client-wait")
+                resources["container"] = "running"
+                events.append("container-created")
+                raise subprocess.TimeoutExpired(("docker", "run"), timeout)
+            events.append("client-finalized")
+            return 143
+
+        def terminate(self) -> None:
+            events.append("client-terminate")
+            self.alive = False
+
+        def kill(self) -> None:
+            raise AssertionError("bounded client termination should be sufficient")
+
+    def inspect_container(docker: str, name: str) -> str:
+        assert docker == "/usr/bin/docker"
+        assert name == "agentverify-fixed-app"
+        events.append("inspect-container")
+        return resources["container"]
+
+    def inspect_network(docker: str, name: str) -> str:
+        assert docker == "/usr/bin/docker"
+        assert name == "agentverify-fixed-net"
+        events.append("inspect-network")
+        return resources["network"]
+
+    def cleanup(argv: Sequence[str], **_: object) -> subprocess.CompletedProcess[str]:
+        command = tuple(argv)
+        events.append("cleanup:" + " ".join(command[1:-1]))
+        assert command[-1] in {"agentverify-fixed-app", "agentverify-fixed-net"}
+        if command[1:3] == ("container", "stop"):
+            resources["container"] = "stopped"
+        elif command[1:4] == ("container", "rm", "--force"):
+            resources["container"] = "absent"
+        elif command[1:3] == ("network", "rm"):
+            resources["network"] = "absent"
+        else:
+            raise AssertionError(f"unexpected cleanup command: {command}")
+        return result(command)
+
+    reader = threading.Thread()
+    reader.start()
+    reader.join()
+    client = LateCreatingDockerClient()
+    application = DockerManagedApplication(
+        preflight=preflight,
+        container_name="agentverify-fixed-app",
+        network_name="agentverify-fixed-net",
+        process=cast(subprocess.Popen[bytes], client),
+        drain=BoundedOutputDrain(max_bytes=4096),
+        reader=reader,
+    )
+    monkeypatch.setattr(
+        "agentverify.isolation._inspect_container_state", inspect_container
+    )
+    monkeypatch.setattr("agentverify.isolation._inspect_network_state", inspect_network)
+    monkeypatch.setattr("agentverify.isolation._run_cleanup_cli", cleanup)
+
+    shutdown = application.stop(grace_seconds=0.1)
+
+    assert shutdown.exit_code == 143
+    assert not shutdown.force_killed
+    assert events.index("client-finalized") < events.index("inspect-container")
+    assert resources == {"container": "absent", "network": "absent"}
+
+
 def test_loopback_relay_forwards_only_the_fixed_tcp_endpoint_and_stops() -> None:
     with socket.socket() as target_listener:
         target_listener.bind(("127.0.0.1", 0))
