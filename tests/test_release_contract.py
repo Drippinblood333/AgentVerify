@@ -6,9 +6,9 @@ import re
 import tomllib
 from pathlib import Path
 
-from agentverify import __version__
-from agentverify.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE
-from agentverify.cli_result import OUTPUT_SCHEMA_VERSION
+from donewitness import __version__
+from donewitness.cli import EXIT_FAIL, EXIT_PASS, EXIT_UNKNOWN, EXIT_USAGE, build_parser
+from donewitness.cli_result import OUTPUT_SCHEMA_VERSION
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
@@ -32,20 +32,28 @@ def test_declared_python_support_matches_release_matrix() -> None:
         (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     project = pyproject["project"]
-    assert project["name"] == "agentverify-evidence"
+    assert project["name"] == "donewitness"
     assert project["requires-python"] == ">=3.12,<3.15"
     assert project["license"] == "Apache-2.0"
     assert project["license-files"] == ["LICENSE"]
-    assert project["authors"] == [{"name": "AgentVerify contributors"}]
+    assert project["authors"] == [{"name": "DoneWitness contributors"}]
     assert project["dependencies"] == ["playwright>=1.61,<2", "pydantic>=2,<3"]
+    assert project["scripts"] == {"donewitness": "donewitness.cli:main"}
+    assert pyproject["tool"]["setuptools"]["dynamic"]["version"] == {
+        "attr": "donewitness.__version__"
+    }
+    assert pyproject["tool"]["setuptools"]["packages"]["find"] == {
+        "where": ["src"],
+        "include": ["donewitness*"],
+    }
     assert project["urls"] == {
-        "Homepage": "https://github.com/Drippinblood333/AgentVerify",
-        "Repository": "https://github.com/Drippinblood333/AgentVerify",
-        "Issues": "https://github.com/Drippinblood333/AgentVerify/issues",
+        "Homepage": "https://github.com/Drippinblood333/DoneWitness",
+        "Repository": "https://github.com/Drippinblood333/DoneWitness",
+        "Issues": "https://github.com/Drippinblood333/DoneWitness/issues",
         "Changelog": (
-            "https://github.com/Drippinblood333/AgentVerify/blob/main/CHANGELOG.md"
+            "https://github.com/Drippinblood333/DoneWitness/blob/main/CHANGELOG.md"
         ),
-        "Security": "https://github.com/Drippinblood333/AgentVerify/security/policy",
+        "Security": "https://github.com/Drippinblood333/DoneWitness/security/policy",
     }
     classifiers = set(project["classifiers"])
     expected_python_classifiers = {
@@ -63,6 +71,28 @@ def test_declared_python_support_matches_release_matrix() -> None:
     assert "Development Status :: 2 - Pre-Alpha" not in classifiers
 
 
+def test_public_identity_is_single_and_old_packages_are_absent() -> None:
+    pyproject = tomllib.loads(
+        (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert __version__ == "0.1.0"
+    assert build_parser().prog == "donewitness"
+    assert pyproject["project"]["name"] == "donewitness"
+    assert pyproject["project"]["scripts"] == {
+        "donewitness": "donewitness.cli:main"
+    }
+    assert (REPOSITORY_ROOT / "src" / "donewitness" / "__main__.py").is_file()
+    assert not (REPOSITORY_ROOT / "src" / "agentverify").exists()
+    assert not (REPOSITORY_ROOT / "src" / "agentverify_evidence").exists()
+
+    readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "# DoneWitness" in readme
+    assert "python -m pip install donewitness" in readme
+    assert "donewitness --version" in readme
+    assert "python -m donewitness" in readme
+
+
 def test_release_facing_install_instructions_use_the_public_distribution() -> None:
     release_files = [
         REPOSITORY_ROOT / "README.md",
@@ -73,25 +103,14 @@ def test_release_facing_install_instructions_use_the_public_distribution() -> No
     ]
     for path in release_files:
         content = path.read_text(encoding="utf-8")
-        assert "pip install agentverify-evidence" in content, path
-        incorrect_lines = [
-            line
-            for line in content.splitlines()
-            if "pip install agentverify" in line
-            and "pip install agentverify-evidence" not in line
-        ]
-        if path.name == "README.md":
-            assert incorrect_lines == [
-                "`pip install agentverify` installs a different project; "
-                "it does not install AgentVerify."
-            ]
-        else:
-            assert not incorrect_lines, path
+        assert "pip install donewitness" in content, path
 
 
 def test_core_source_contains_no_ci_vendor_contract() -> None:
     forbidden = ("GITHUB_", "GITLAB_", "JENKINS_", "BUILD_BUILDID")
-    for source in (REPOSITORY_ROOT / "src" / "agentverify").glob("*.py"):
+    sources = list((REPOSITORY_ROOT / "src" / "donewitness").glob("*.py"))
+    assert sources
+    for source in sources:
         content = source.read_text(encoding="utf-8")
         assert not any(token in content for token in forbidden), source
 

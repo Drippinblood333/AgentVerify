@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.plan import (
+from donewitness.plan import (
     PlanEncodingError,
     PlanFileError,
     PlanJSONError,
@@ -31,7 +31,7 @@ VALID_PLAN: dict[str, object] = {
 
 
 def write_json(path: Path, data: object) -> None:
-    """Write JSON test input without involving AgentVerify serialization."""
+    """Write JSON test input without involving DoneWitness serialization."""
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
@@ -53,6 +53,15 @@ def test_semantically_identical_json_has_the_same_digest(tmp_path: Path) -> None
     formatted.write_text(json.dumps(VALID_PLAN, indent=4), encoding="utf-8")
 
     assert plan_digest(load_plan(compact)) == plan_digest(load_plan(formatted))
+
+
+def test_v1_plan_digest_is_unchanged_by_product_identity(tmp_path: Path) -> None:
+    path = tmp_path / "plan.json"
+    write_json(path, VALID_PLAN)
+
+    assert plan_digest(load_plan(path)) == (
+        "sha256:b29aa3da660a1ad6474ed475abf617a2dc79f77b686724eb6a2b8ee1e3af1e91"
+    )
 
 
 def test_load_plan_rejects_a_missing_file(tmp_path: Path) -> None:

@@ -9,10 +9,10 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import Verdict, VerificationResult
+from donewitness.provenance import SourceProvenance
+from donewitness.receipt import (
     DirectExecutionMetadata,
     EnvironmentMetadataV2,
     ExternalPlanSource,
@@ -70,7 +70,7 @@ def build_v4(
         ),
         completed=cleanup_confirmed and post_run_source_state == "clean",
         environment=EnvironmentMetadataV2(
-            agentverify_version="0.1.0.dev0",
+            donewitness_version="0.1.0.dev0",
             python_version="3.14.3",
             platform="Linux",
             playwright_version="1.61.0",

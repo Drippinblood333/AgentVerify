@@ -13,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from agentverify.domain import NonBlankText
+from donewitness.domain import NonBlankText
 
 
 class NavigateStep(BaseModel):

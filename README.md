@@ -1,18 +1,21 @@
-# AgentVerify
+# DoneWitness
 
-[![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
+[![CI](https://github.com/Drippinblood333/DoneWitness/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/DoneWitness/actions/workflows/ci.yml)
 
-> **Status: v0.1.0 release preparation.** The proposed v0.1 is an early public, CLI-first release
-> for locally runnable web applications. AgentVerify can run one complete local verification flow, record
+> **v0.1.0 scope.** DoneWitness is an early CLI-first release
+> for locally runnable web applications. It can run one complete local verification flow, record
 > source provenance when Git is available, bind versioned receipts to persisted evidence, inspect
 > an existing run for integrity mismatches, and optionally run an application through a controlled
 > local Docker isolation baseline or from one disposable selected-revision Git worktree.
 
 Licensed under [Apache-2.0](LICENSE).
 
-AgentVerify is an independent software verification layer for AI coding agents. It is intended to answer a practical question after Codex, Claude Code, Cursor, or another builder says a task is done: **does the software actually satisfy the agreed requirements when it runs?**
+DoneWitness is a deterministic acceptance verifier for AI-written web software. It runs a frozen,
+human-reviewed verification plan against the actual application and produces evidence-backed
+`PASS`, `FAIL`, or `UNKNOWN` receipts. No judge model is required for its deterministic verdict
+path.
 
-Coding agents can produce convincing code and confident completion reports while missing an edge case, weakening a test, or leaving a browser flow broken at runtime. AgentVerify is designed to evaluate a frozen set of acceptance criteria by executing observable checks and collecting evidence such as command output, test results, screenshots, browser logs, and HTTP responses.
+Coding agents can produce convincing code and confident completion reports while missing an edge case, weakening a test, or leaving a browser flow broken at runtime. DoneWitness is designed to evaluate a frozen set of acceptance criteria by executing observable checks and collecting evidence such as command output, test results, screenshots, browser logs, and HTTP responses.
 
 Its guiding ideas are:
 
@@ -23,10 +26,10 @@ Its guiding ideas are:
 
 ## Development status
 
-The proposed v0.1.0 includes:
+v0.1.0 includes:
 
 - an installable Python 3.12–3.14 package;
-- `agentverify --help` and `agentverify --version`; and
+- `donewitness --help` and `donewitness --version`; and
 - strict validation of versioned JSON verification plans;
 - deterministic plan digests; and
 - the minimal `PASS`/`FAIL`/`UNKNOWN` domain aggregation rule; and
@@ -54,16 +57,14 @@ the baseline browser observation, passes path, size, and SHA-256 checks.
 Install the public distribution, then install Playwright-managed Chromium for browser verification:
 
 ```console
-python -m pip install agentverify-evidence
+python -m pip install donewitness
 python -m playwright install chromium
-agentverify --version
+donewitness --version
 ```
 
-The AgentVerify brand, `agentverify` Python import package, and `agentverify` console command retain
-their names. The PyPI distribution is `agentverify-evidence` because the normalized `agentverify`
-distribution namespace is owned by a different project.
-
-`pip install agentverify` installs a different project; it does not install AgentVerify.
+The product is DoneWitness. Its PyPI distribution, Python import package, console command, and
+`python -m` package name all use the single lowercase identity `donewitness`. The equivalent module
+entry point is `python -m donewitness`.
 
 For contributor/source installation, clone the repository and use:
 
@@ -77,29 +78,29 @@ python -m playwright install chromium
 From PowerShell, after installation, run the maintained Plan v2 and standard-library sample app:
 
 ```console
-agentverify verify `
+donewitness verify `
   --plan examples/greeting.plan.json `
   --base-url http://127.0.0.1:8765 `
-  --run-dir .agentverify/demo-run `
+  --run-dir .donewitness/demo-run `
   --app-command python examples/greeting_app.py
 ```
 
 For POSIX shells, replace the PowerShell backticks with `\`. `--app-command` consumes the remaining
-argv and must be the final AgentVerify option. A custom port therefore looks like:
+argv and must be the final DoneWitness option. A custom port therefore looks like:
 
 ```console
-agentverify verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:9000 --run-dir .agentverify/demo-run-9000 --app-command python examples/greeting_app.py --port 9000
+donewitness verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:9000 --run-dir .donewitness/demo-run-9000 --app-command python examples/greeting_app.py --port 9000
 ```
 
 The successful demo prints paths to `receipt.txt`, `receipt.json`, and
 `evidence-manifest.json`, then exits after terminating the sample application. The run directory
-must be nonexistent or empty; AgentVerify never overwrites a prior run.
+must be nonexistent or empty; DoneWitness never overwrites a prior run.
 
 For automation, place `--output-format json` before the final `--app-command`. Stdout then contains
 one compact JSON object for a finalized trustworthy bundle, while warnings remain on stderr:
 
 ```console
-agentverify verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:8765 --run-dir .agentverify/json-demo --output-format json --app-command python examples/greeting_app.py
+donewitness verify --plan examples/greeting.plan.json --base-url http://127.0.0.1:8765 --run-dir .donewitness/json-demo --output-format json --app-command python examples/greeting_app.py
 ```
 
 The summary reports the verdict, completion state, exit code, receipt schema, and resolved receipt
@@ -116,15 +117,15 @@ Use `--revision` before the final `--app-command` to verify one commit already p
 repository without switching or cleaning the caller worktree:
 
 ```console
-agentverify verify \
+donewitness verify \
   --plan examples/greeting.plan.json \
   --base-url http://127.0.0.1:8765 \
-  --run-dir ../agentverify-runs/greeting-revision \
+  --run-dir ../donewitness-runs/greeting-revision \
   --revision HEAD~1 \
   --app-command python examples/greeting_app.py --port 8765
 ```
 
-AgentVerify resolves the selector once to a lowercase 40-character commit ID, rejects revisions
+DoneWitness resolves the selector once to a lowercase 40-character commit ID, rejects revisions
 containing submodules/gitlinks, and creates a detached worktree under the system temporary
 directory with checkout hooks redirected to an empty hooks directory. This necessarily creates a
 temporary administrative worktree registration in the caller repository. The command runs with
@@ -133,7 +134,7 @@ while Docker mode binds the same selected root read-only. The plan is still load
 from the original caller path before worktree creation, and the run directory must remain outside
 the disposable source.
 
-After application cleanup AgentVerify checks whether the disposable source became dirty, then
+After application cleanup DoneWitness checks whether the disposable source became dirty, then
 removes and confirms only that exact worktree before finalizing evidence and receipt v4. Source
 mutation or unconfirmed worktree cleanup makes a non-FAIL run incomplete/`UNKNOWN` with exit `3`;
 a real browser assertion `FAIL` remains `FAIL`. Git is required only when `--revision` is supplied.
@@ -141,12 +142,12 @@ No fetch, pull, clone, global prune, checkout, reset, or caller-worktree mutatio
 The original HEAD, index, staged changes, unstaged changes, untracked files, and working files are
 excluded from the selected source and preserved. The local Git executable and local repository/user
 configuration remain trusted: disabling hooks is not a sandbox for arbitrary filters or other Git
-configuration, and AgentVerify does not manage Git LFS hydration.
+configuration, and DoneWitness does not manage Git LFS hydration.
 
 ## Optional Docker isolation baseline
 
 Docker mode is explicit and requires Docker Engine server 28 or newer in Linux-container mode over
-a local Unix socket or named pipe; remote Docker endpoints are rejected. The selected image must already exist locally; AgentVerify inspects it, records its concrete local
+a local Unix socket or named pipe; remote Docker endpoints are rejected. The selected image must already exist locally; DoneWitness inspects it, records its concrete local
 `sha256:` image ID, runs that ID with `--pull never`, and never pulls or builds an image. If needed,
 the user or CI can make the maintained image available first:
 
@@ -157,21 +158,21 @@ docker pull python:3.12-slim
 Choose a run directory outside the current source root, then run the same plan and application:
 
 ```console
-agentverify verify \
+donewitness verify \
   --plan examples/greeting.plan.json \
   --base-url http://127.0.0.1:8765 \
-  --run-dir ../agentverify-runs/greeting-docker \
+  --run-dir ../donewitness-runs/greeting-docker \
   --isolation docker \
   --isolation-image python:3.12-slim \
   --app-command python examples/greeting_app.py --host 0.0.0.0 --port 8765
 ```
 
-`--app-command` remains explicit argv and must remain the final AgentVerify option. Docker mode
+`--app-command` remains explicit argv and must remain the final DoneWitness option. Docker mode
 requires an exact `127.0.0.1` base-url host and explicit TCP port. The application inside the
-container must listen on `0.0.0.0` at that same port; AgentVerify publishes only that port to the
+container must listen on `0.0.0.0` at that same port; DoneWitness publishes only that port to the
 host's `127.0.0.1`.
 
-The fixed `agentverify-docker-baseline-v1` profile:
+The fixed `donewitness-docker-baseline-v1` profile:
 
 - mounts the explicit selected execution root at `/workspace` read-only, disables recursive
   propagation of nested host submounts, and uses `/workspace` as the container working directory;
@@ -211,7 +212,7 @@ output and exit `3` unless a real browser assertion `FAIL` was already establish
 Inspect the completed bundle without rerunning the application or Chromium:
 
 ```console
-agentverify inspect --run-dir .agentverify/demo-run
+donewitness inspect --run-dir .donewitness/demo-run
 ```
 
 A valid receipt-v2, receipt-v3, or receipt-v4 bundle reports its historical verdict and `Integrity: OK`. Invalid inspection
@@ -317,7 +318,7 @@ receipt is trusted. It does not establish authenticity: an attacker able to modi
 manifest, and artifacts can recompute all unkeyed hashes consistently.
 
 Without `--revision`, Git provenance is captured read-only from the invocation directory using
-bounded Git commands. AgentVerify remains usable when Git is absent or the directory is outside a
+bounded Git commands. DoneWitness remains usable when Git is absent or the directory is outside a
 repository. When `dirty_worktree` is true, the recorded HEAD revision does not uniquely identify
 the current-worktree source bytes. With `--revision`, provenance instead identifies the exact clean
 disposable source commit while receipt v4 separately records caller HEAD/dirty state, the explicit
@@ -334,7 +335,7 @@ selection plus repository-relative-or-external plan-source metadata. Historical 
 remain inspectable; external plans never expose an absolute plan path in the receipt.
 
 The plan object loaded before execution remains the authoritative frozen snapshot. After run
-finalization AgentVerify canonically reloads the original plan path; a semantic change, deletion, or
+finalization DoneWitness canonically reloads the original plan path; a semantic change, deletion, or
 invalid replacement produces a warning while preserving the receipt digest and verdict for the
 frozen snapshot. Formatting-only equivalent rewrites do not warn.
 
@@ -365,23 +366,23 @@ deletion remain the user's responsibility.
 
 - **Chromium is missing:** run `python -m playwright install chromium`.
 - **Port already in use or already accepting connections:** choose another free port and pass the
-  same value in `--base-url` and after the final `--app-command ... --port` argument. AgentVerify
+  same value in `--base-url` and after the final `--app-command ... --port` argument. DoneWitness
   refuses to start the command when it cannot safely attribute an already-listening endpoint.
 - **Application never becomes ready:** check the configured host/port and inspect the process-log
   artifact; increase `--startup-timeout-ms` only when startup legitimately needs more time.
 - **Run directory already contains files:** choose a new directory or explicitly empty the intended
-  directory before starting. AgentVerify will not overwrite it.
+  directory before starting. DoneWitness will not overwrite it.
 - **Docker is unavailable or too old:** Docker mode requires a reachable Docker Engine 28+ server
   using Linux containers. Direct mode remains available without Docker.
 - **Docker image is missing:** pull or build the selected image explicitly before verification;
-  AgentVerify does not pull it.
+  DoneWitness does not pull it.
 - **Docker run directory is rejected:** choose a new or empty path outside the current source root.
 - **Docker application never becomes ready:** ensure it binds `0.0.0.0` at the exact port used in
   the `127.0.0.1` base URL.
 - **Revision is rejected:** ensure the selector identifies one commit already available locally and
   that the selected tree contains no submodule/gitlink entries.
 - **Revision cleanup is unconfirmed:** treat exit `3` as incomplete, inspect the receipt limitation,
-  and use `git worktree list` to review the exact remaining registration; AgentVerify does not run a
+  and use `git worktree list` to review the exact remaining registration; DoneWitness does not run a
   repository-wide prune.
 
 The first release is deliberately limited to **locally runnable web applications** and a CLI-first experience. It will not be a hosted platform, coding-agent orchestrator, team dashboard, or general-purpose mobile and desktop testing system.
@@ -405,4 +406,4 @@ The first release is deliberately limited to **locally runnable web applications
 
 The documented CLI exit codes and versioned plan, receipt, evidence-manifest, and machine-output
 formats are the supported compatibility surfaces. Undocumented Python internals are not a stable
-API before 1.0. Publication of v0.1.0 remains subject to the explicit release ceremony.
+API before 1.0.

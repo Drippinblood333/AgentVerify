@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import Verdict, VerificationResult
+from donewitness.provenance import SourceProvenance
+from donewitness.receipt import (
     EnvironmentMetadataV2,
     ProofReceipt,
     ProofReceiptV2,
@@ -56,7 +56,7 @@ def receipt_v2() -> ProofReceiptV2:
         ),
         completed=True,
         environment=EnvironmentMetadataV2(
-            agentverify_version="0.1.0.dev0",
+            donewitness_version="0.1.0.dev0",
             python_version="3.14.3",
             platform="Windows",
             playwright_version="1.61.0",

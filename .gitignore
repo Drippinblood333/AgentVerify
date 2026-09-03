@@ -16,7 +16,7 @@ build/
 !.env.example
 
 # Verification artifacts
-.agentverify/
+.donewitness/
 test-results/
 playwright-report/
 

@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-from agentverify.domain import NonBlankText
+from donewitness.domain import NonBlankText
 
 EVIDENCE_MANIFEST_FILENAME = "evidence-manifest.json"
 _DIGEST_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -95,7 +95,7 @@ def _validate_relative_path(relative_path: str) -> str:
 
 
 class EvidenceArtifact(BaseModel):
-    """Immutable metadata describing bytes that were persisted by AgentVerify."""
+    """Immutable metadata describing bytes that were persisted by DoneWitness."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -306,7 +306,7 @@ class EvidenceStore:
         text: str,
         *,
         criterion_id: str | None = None,
-        producer: str = "agentverify.process",
+        producer: str = "donewitness.process",
     ) -> EvidenceArtifact:
         """Store already-observed process text without managing the process itself."""
         return self.record_text(
@@ -515,7 +515,7 @@ class EvidenceStore:
         temporary_path: Path | None = None
         try:
             descriptor, temporary_name = tempfile.mkstemp(
-                prefix=".agentverify-evidence-",
+                prefix=".donewitness-",
                 dir=destination.parent,
             )
             temporary_path = Path(temporary_name)

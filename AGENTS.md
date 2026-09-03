@@ -1,10 +1,10 @@
-# AgentVerify Contributor Instructions
+# DoneWitness Contributor Instructions
 
 These instructions apply to every coding agent and human contributor working in this repository.
 
 ## Product boundary
 
-AgentVerify is an independent, evidence-first verification layer for work produced by AI coding agents. The v0.1 product verifies **locally runnable web applications** through a CLI. It is not an agent orchestrator, hosted service, dashboard, mobile or desktop verifier, or enterprise platform.
+DoneWitness is an independent, evidence-first verification layer for work produced by AI coding agents. The v0.1 product verifies **locally runnable web applications** through a CLI. It is not an agent orchestrator, hosted service, dashboard, mobile or desktop verifier, or enterprise platform.
 
 Do not expand the v0.1 scope without an explicit product decision recorded in the documentation. In particular, do not add cloud services, accounts, payments, distributed workers, Kubernetes, queues, vector databases, or a general plugin platform because they may be useful later.
 

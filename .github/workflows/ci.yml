@@ -10,7 +10,7 @@ jobs:
   quality-linux:
     runs-on: ubuntu-latest
     env:
-      AGENTVERIFY_REQUIRE_DOCKER: "1"
+      DONEWITNESS_REQUIRE_DOCKER: "1"
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
@@ -61,7 +61,7 @@ jobs:
       - run: python scripts/smoke_distribution.py dist/*.tar.gz
       - uses: actions/upload-artifact@v7
         with:
-          name: agentverify-evidence-0.1.0-distributions
+          name: donewitness-0.1.0-distributions
           path: |
             dist/*.whl
             dist/*.tar.gz

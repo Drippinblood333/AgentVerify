@@ -1,4 +1,4 @@
-"""Read-only integrity inspection for an existing AgentVerify run directory."""
+"""Read-only integrity inspection for an existing DoneWitness run directory."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentverify.domain import Verdict
-from agentverify.evidence import (
+from donewitness.domain import Verdict
+from donewitness.evidence import (
     EVIDENCE_MANIFEST_FILENAME,
     EvidenceArtifact,
     EvidenceError,
     EvidenceKind,
     EvidenceStore,
 )
-from agentverify.receipt import (
+from donewitness.receipt import (
     ProofReceiptV2,
     ProofReceiptV3,
     ProofReceiptV4,

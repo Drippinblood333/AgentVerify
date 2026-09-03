@@ -1,14 +1,12 @@
 # Changelog
 
-All notable user-visible changes to AgentVerify are documented here. The format follows
+All notable user-visible changes to DoneWitness are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses the pre-1.0 policy in
 [docs/VERSIONING.md](docs/VERSIONING.md).
 
 ## [Unreleased]
 
-- Public release remains pending independent review and the explicit release ceremony.
-
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-09-03
 
 ### Added
 

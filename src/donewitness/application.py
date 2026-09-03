@@ -70,7 +70,7 @@ class ShutdownResult:
 class BoundedOutputDrain:
     """Drain one merged pipe forever while retaining only a bounded prefix."""
 
-    _TRUNCATION_MARKER = b"\n[agentverify: process output truncated]\n"
+    _TRUNCATION_MARKER = b"\n[donewitness: process output truncated]\n"
 
     def __init__(self, *, max_bytes: int) -> None:
         if max_bytes < len(self._TRUNCATION_MARKER):
@@ -190,7 +190,7 @@ class ManagedApplication:
         reader = threading.Thread(
             target=drain.drain,
             args=(process.stdout,),
-            name="agentverify-application-output",
+            name="donewitness-application-output",
             daemon=True,
         )
         reader.start()

@@ -1,6 +1,6 @@
 # Versioning policy
 
-AgentVerify package versions follow a SemVer-style `MAJOR.MINOR.PATCH` scheme. The project is
+DoneWitness package versions follow a SemVer-style `MAJOR.MINOR.PATCH` scheme. The project is
 pre-1.0: minor releases may change product behavior and unsupported Python internals. Permanent
 stability is not promised before 1.0.
 

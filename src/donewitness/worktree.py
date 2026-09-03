@@ -45,7 +45,7 @@ class ManagedGitWorktree:
 
     @classmethod
     def create(cls, revision: ResolvedRevision) -> ManagedGitWorktree:
-        temporary_root = Path(tempfile.mkdtemp(prefix="agentverify-worktree-"))
+        temporary_root = Path(tempfile.mkdtemp(prefix="donewitness-worktree-"))
         source_root = temporary_root / "source"
         empty_hooks_root = temporary_root / "empty-hooks"
         empty_hooks_root.mkdir()

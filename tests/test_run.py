@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from agentverify.browser import BrowserExecutionResult
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.run import ResultCoverageError, build_browser_verification_results
+from donewitness.browser import BrowserExecutionResult
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import Verdict
+from donewitness.evidence import EvidenceKind, EvidenceStore
+from donewitness.run import ResultCoverageError, build_browser_verification_results
 
 
 def plan(*criterion_ids: str) -> BrowserVerificationPlan:

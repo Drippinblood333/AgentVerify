@@ -48,7 +48,7 @@ jobs:
                   f"tag target {tag_commit} does not equal checked-out commit {head_commit}"
               )
           module = ast.parse(
-              Path("src/agentverify/__init__.py").read_text(encoding="utf-8")
+              Path("src/donewitness/__init__.py").read_text(encoding="utf-8")
           )
           version = next(
               node.value.value
@@ -89,7 +89,7 @@ jobs:
           sha256sum packages/*.whl packages/*.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: agentverify-evidence-0.1.0-release
+          name: donewitness-0.1.0-release
           path: release-artifact/
           if-no-files-found: error
 
@@ -107,7 +107,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: agentverify-evidence-0.1.0-release
+          name: donewitness-0.1.0-release
           path: release-artifact
       - run: sha256sum --check SHA256SUMS
         working-directory: release-artifact
@@ -129,7 +129,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: agentverify-evidence-0.1.0-release
+          name: donewitness-0.1.0-release
           path: release-artifact
       - name: Verify checksums
         shell: pwsh
@@ -157,7 +157,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: agentverify-evidence-0.1.0-release
+          name: donewitness-0.1.0-release
           path: release-artifact
       - run: sha256sum --check SHA256SUMS
         working-directory: release-artifact
@@ -177,7 +177,7 @@ jobs:
           ref: ${{ needs.validate-ref.outputs.release-sha }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: agentverify-evidence-0.1.0-release
+          name: donewitness-0.1.0-release
           path: release-artifact
       - run: sha256sum --check SHA256SUMS
         working-directory: release-artifact
@@ -188,7 +188,7 @@ jobs:
         run: >-
           gh release create "$RELEASE_TAG"
           --verify-tag
-          --title "AgentVerify v0.1.0"
+          --title "DoneWitness v0.1.0"
           --notes-file docs/releases/v0.1.0.md
           release-artifact/packages/*.whl
           release-artifact/packages/*.tar.gz

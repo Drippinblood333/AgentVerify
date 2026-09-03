@@ -21,7 +21,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from agentverify.browser_plan import (
+from donewitness.browser_plan import (
     AssertVisibleStep,
     BrowserAcceptanceCriterion,
     BrowserVerificationPlan,
@@ -29,8 +29,8 @@ from agentverify.browser_plan import (
     FillStep,
     NavigateStep,
 )
-from agentverify.domain import Verdict
-from agentverify.evidence import EvidenceError, EvidenceKind, EvidenceStore
+from donewitness.domain import Verdict
+from donewitness.evidence import EvidenceError, EvidenceKind, EvidenceStore
 
 
 class BaseURLValidationError(ValueError):
@@ -352,7 +352,7 @@ class BrowserVerifier:
                     kind=EvidenceKind.SCREENSHOT,
                     data=screenshot,
                     media_type="image/png",
-                    producer="agentverify.browser",
+                    producer="donewitness.browser",
                     criterion_id=result.criterion_id,
                 )
             except (Error, EvidenceError):
@@ -365,7 +365,7 @@ class BrowserVerifier:
                 artifact = store.record_json(
                     kind=EvidenceKind.CONSOLE_ERRORS,
                     payload={"schema_version": 1, "entries": console_entries},
-                    producer="agentverify.browser",
+                    producer="donewitness.browser",
                     criterion_id=result.criterion_id,
                 )
             except EvidenceError:
@@ -380,7 +380,7 @@ class BrowserVerifier:
                 artifact = store.record_json(
                     kind=EvidenceKind.NETWORK_SUMMARY,
                     payload={"schema_version": 1, "entries": network_entries},
-                    producer="agentverify.browser",
+                    producer="donewitness.browser",
                     criterion_id=result.criterion_id,
                 )
             except EvidenceError:
@@ -396,7 +396,7 @@ class BrowserVerifier:
             else:
                 try:
                     with tempfile.TemporaryDirectory(
-                        prefix="agentverify-trace-",
+                        prefix="donewitness-trace-",
                         dir=store.run_root,
                     ) as temporary_directory:
                         trace_path = Path(temporary_directory) / "trace.zip"
@@ -405,7 +405,7 @@ class BrowserVerifier:
                             kind=EvidenceKind.PLAYWRIGHT_TRACE,
                             source=trace_path,
                             media_type="application/zip",
-                            producer="agentverify.browser",
+                            producer="donewitness.browser",
                             criterion_id=result.criterion_id,
                         )
                 except (Error, EvidenceError, OSError):
@@ -432,7 +432,7 @@ class BrowserVerifier:
                     "reason": result.reason,
                     "failed_step_index": result.failed_step_index,
                 },
-                producer="agentverify.browser",
+                producer="donewitness.browser",
                 criterion_id=result.criterion_id,
             )
         except EvidenceError:

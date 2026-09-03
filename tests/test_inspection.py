@@ -8,12 +8,17 @@ from pathlib import Path
 import pytest
 from pytest import CaptureFixture
 
-from agentverify.cli import EXIT_SUCCESS, EXIT_UNKNOWN, EXIT_USAGE, main
-from agentverify.domain import AcceptanceCriterion, Verdict, VerificationPlan, VerificationResult
-from agentverify.evidence import EvidenceKind, EvidenceStore
-from agentverify.inspection import inspect_run_directory, sha256_file
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from donewitness.cli import EXIT_SUCCESS, EXIT_UNKNOWN, EXIT_USAGE, main
+from donewitness.domain import (
+    AcceptanceCriterion,
+    Verdict,
+    VerificationPlan,
+    VerificationResult,
+)
+from donewitness.evidence import EvidenceKind, EvidenceStore
+from donewitness.inspection import inspect_run_directory, sha256_file
+from donewitness.provenance import SourceProvenance
+from donewitness.receipt import (
     EnvironmentMetadataV2,
     ProofReceiptV2,
     ProofReceiptV3,
@@ -91,7 +96,7 @@ def make_authority_run(
         ),
         completed=verdict is not Verdict.UNKNOWN,
         environment=EnvironmentMetadataV2(
-            agentverify_version="0.1.0.dev0",
+            donewitness_version="0.1.0.dev0",
             python_version="3.14.3",
             platform="test",
             playwright_version="1.61.0",

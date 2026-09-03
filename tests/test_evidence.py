@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentverify.evidence import (
+from donewitness.evidence import (
     EVIDENCE_MANIFEST_FILENAME,
     EvidenceArtifact,
     EvidenceIntegrityError,
@@ -40,7 +40,7 @@ def artifact(
         size_bytes=size_bytes,
         digest=digest or f"sha256:{'0' * 64}",
         captured_at=datetime(2026, 8, 15, tzinfo=UTC),
-        producer="agentverify.browser",
+        producer="donewitness.browser",
         redacted=False,
     )
 

@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.domain import Verdict, VerificationResult
-from agentverify.provenance import SourceProvenance
-from agentverify.receipt import (
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.domain import Verdict, VerificationResult
+from donewitness.provenance import SourceProvenance
+from donewitness.receipt import (
     DirectExecutionMetadata,
     DockerExecutionMetadata,
     EnvironmentMetadataV2,
@@ -60,7 +60,7 @@ def build_v3(execution: DirectExecutionMetadata | DockerExecutionMetadata) -> Pr
         ),
         completed=True,
         environment=EnvironmentMetadataV2(
-            agentverify_version="0.1.0.dev0",
+            donewitness_version="0.1.0.dev0",
             python_version="3.14.3",
             platform="Linux",
             playwright_version="1.61.0",
@@ -90,7 +90,7 @@ def build_historical_v2() -> ProofReceiptV2:
         ),
         completed=True,
         environment=EnvironmentMetadataV2(
-            agentverify_version="0.1.0.dev0",
+            donewitness_version="0.1.0.dev0",
             python_version="3.14.3",
             platform="Linux",
             playwright_version="1.61.0",
@@ -118,7 +118,7 @@ def test_receipt_v3_records_direct_execution_without_docker_claims() -> None:
 
 def test_receipt_v3_records_resolved_docker_execution_identity() -> None:
     execution = DockerExecutionMetadata(
-        isolation_profile="agentverify-docker-baseline-v1",
+        isolation_profile="donewitness-docker-baseline-v1",
         docker_server_version="28.3.1",
         image_reference="python:3.12-slim",
         image_id=f"sha256:{'c' * 64}",
@@ -128,7 +128,7 @@ def test_receipt_v3_records_resolved_docker_execution_identity() -> None:
 
     assert receipt.execution == execution
     assert "Isolation mode: docker" in rendered
-    assert "Isolation profile: agentverify-docker-baseline-v1" in rendered
+    assert "Isolation profile: donewitness-docker-baseline-v1" in rendered
     assert "Docker image reference: python:3.12-slim" in rendered
     assert f"Docker image ID: sha256:{'c' * 64}" in rendered
 

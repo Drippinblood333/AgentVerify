@@ -1,4 +1,4 @@
-"""Command-line interface for AgentVerify."""
+"""Command-line interface for DoneWitness."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agentverify import __version__
-from agentverify.browser import BaseURLValidationError
-from agentverify.browser_plan import BrowserVerificationPlan
-from agentverify.cli_result import build_verify_summary, render_verify_summary
-from agentverify.domain import Verdict
-from agentverify.inspection import (
+from donewitness import __version__
+from donewitness.browser import BaseURLValidationError
+from donewitness.browser_plan import BrowserVerificationPlan
+from donewitness.cli_result import build_verify_summary, render_verify_summary
+from donewitness.domain import Verdict
+from donewitness.inspection import (
     InspectionInputError,
     RunIntegrityError,
     inspect_run_directory,
 )
-from agentverify.plan import PlanError, load_plan
-from agentverify.run import (
+from donewitness.plan import PlanError, load_plan
+from donewitness.run import (
     RunConfigurationError,
     RunOperationalError,
     verify_local_application,
@@ -42,15 +42,17 @@ def _startup_timeout(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the AgentVerify argument parser."""
+    """Build the DoneWitness argument parser."""
     parser = argparse.ArgumentParser(
-        prog="agentverify",
-        description="Independent verification for AI coding agent output.",
+        prog="donewitness",
+        description=(
+            "Deterministic acceptance verification for AI-written web software."
+        ),
     )
     parser.add_argument(
         "--version",
         action="version",
-        version=f"AgentVerify {__version__}",
+        version=f"DoneWitness {__version__}",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -105,11 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--app-command",
         required=True,
         nargs=argparse.REMAINDER,
-        help="application argv; this must be the final AgentVerify option",
+        help="application argv; this must be the final DoneWitness option",
     )
     inspect_parser = subparsers.add_parser(
         "inspect",
-        help="check the integrity of an existing AgentVerify run directory",
+        help="check the integrity of an existing DoneWitness run directory",
     )
     inspect_parser.add_argument(
         "--run-dir",
@@ -121,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the AgentVerify CLI and return its process exit code."""
+    """Run the DoneWitness CLI and return its process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -148,16 +150,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 isolation_image=args.isolation_image,
             )
         except KeyboardInterrupt:
-            print("agentverify: verification interrupted", file=sys.stderr)
+            print("donewitness: verification interrupted", file=sys.stderr)
             return EXIT_UNKNOWN
         except (PlanError, BaseURLValidationError, RunConfigurationError) as error:
-            print(f"agentverify: error: {error}", file=sys.stderr)
+            print(f"donewitness: error: {error}", file=sys.stderr)
             return EXIT_USAGE
         except RunOperationalError as error:
-            print(f"agentverify: verification incomplete: {error}", file=sys.stderr)
+            print(f"donewitness: verification incomplete: {error}", file=sys.stderr)
             return EXIT_UNKNOWN
         except RunIntegrityError as error:
-            print(f"agentverify: integrity warning: {error}", file=sys.stderr)
+            print(f"donewitness: integrity warning: {error}", file=sys.stderr)
             return EXIT_UNKNOWN
 
         if outcome.plan_drift_warning is not None:
@@ -185,10 +187,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             inspection = inspect_run_directory(args.run_dir)
         except InspectionInputError as error:
-            print(f"agentverify: error: {error}", file=sys.stderr)
+            print(f"donewitness: error: {error}", file=sys.stderr)
             return EXIT_USAGE
         except RunIntegrityError as error:
-            print(f"agentverify: integrity warning: {error}", file=sys.stderr)
+            print(f"donewitness: integrity warning: {error}", file=sys.stderr)
             return EXIT_UNKNOWN
 
         print(f"Verdict: {inspection.receipt.overall_verdict.value}")

@@ -1,10 +1,10 @@
-AGENTVERIFY PROOF RECEIPT
+DONEWITNESS PROOF RECEIPT
 
 Task: Implement password reset
 Plan: sha256:b29aa3da660a1ad6474ed475abf617a2dc79f77b686724eb6a2b8ee1e3af1e91
 Verdict: FAIL
 Run completed: yes
-AgentVerify: 0.1.0.dev0
+DoneWitness: 0.1.0.dev0
 Python: 3.14.3
 Platform: Windows
 
