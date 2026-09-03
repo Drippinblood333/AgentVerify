@@ -6,7 +6,7 @@ All notable user-visible changes to DoneWitness are documented here. The format 
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-01
+## [0.1.0] - 2026-09-03
 
 ### Added
 
