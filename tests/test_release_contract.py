@@ -47,13 +47,13 @@ def test_declared_python_support_matches_release_matrix() -> None:
         "include": ["donewitness*"],
     }
     assert project["urls"] == {
-        "Homepage": "https://github.com/Drippinblood333/AgentVerify",
-        "Repository": "https://github.com/Drippinblood333/AgentVerify",
-        "Issues": "https://github.com/Drippinblood333/AgentVerify/issues",
+        "Homepage": "https://github.com/Drippinblood333/DoneWitness",
+        "Repository": "https://github.com/Drippinblood333/DoneWitness",
+        "Issues": "https://github.com/Drippinblood333/DoneWitness/issues",
         "Changelog": (
-            "https://github.com/Drippinblood333/AgentVerify/blob/main/CHANGELOG.md"
+            "https://github.com/Drippinblood333/DoneWitness/blob/main/CHANGELOG.md"
         ),
-        "Security": "https://github.com/Drippinblood333/AgentVerify/security/policy",
+        "Security": "https://github.com/Drippinblood333/DoneWitness/security/policy",
     }
     classifiers = set(project["classifiers"])
     expected_python_classifiers = {

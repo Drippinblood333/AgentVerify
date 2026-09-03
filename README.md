@@ -1,6 +1,6 @@
 # DoneWitness
 
-[![CI](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/AgentVerify/actions/workflows/ci.yml)
+[![CI](https://github.com/Drippinblood333/DoneWitness/actions/workflows/ci.yml/badge.svg)](https://github.com/Drippinblood333/DoneWitness/actions/workflows/ci.yml)
 
 > **v0.1.0 scope.** DoneWitness is an early CLI-first release
 > for locally runnable web applications. It can run one complete local verification flow, record

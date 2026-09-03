@@ -21,11 +21,11 @@ EXPECTED_REQUIRES_PYTHON_PARTS = frozenset({">=3.12", "<3.15"})
 EXPECTED_CONSOLE_SCRIPT = "donewitness.cli:main"
 EXPECTED_LICENSE_EXPRESSION = "Apache-2.0"
 EXPECTED_PROJECT_URLS = {
-    "Homepage": "https://github.com/Drippinblood333/AgentVerify",
-    "Repository": "https://github.com/Drippinblood333/AgentVerify",
-    "Issues": "https://github.com/Drippinblood333/AgentVerify/issues",
-    "Changelog": "https://github.com/Drippinblood333/AgentVerify/blob/main/CHANGELOG.md",
-    "Security": "https://github.com/Drippinblood333/AgentVerify/security/policy",
+    "Homepage": "https://github.com/Drippinblood333/DoneWitness",
+    "Repository": "https://github.com/Drippinblood333/DoneWitness",
+    "Issues": "https://github.com/Drippinblood333/DoneWitness/issues",
+    "Changelog": "https://github.com/Drippinblood333/DoneWitness/blob/main/CHANGELOG.md",
+    "Security": "https://github.com/Drippinblood333/DoneWitness/security/policy",
 }
 FORBIDDEN_PARTS = {
     ".donewitness",
